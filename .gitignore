@@ -1,0 +1,8 @@
+*.ko
+*.mod
+*.mod.c
+*.o
+*.cmd
+Module.symvers
+modules.order
+/.vagrant
