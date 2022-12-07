@@ -1,0 +1,16 @@
+
+[+]
+
+[module-build]
+command=make default
+cwd=<root>
+output=quickfix
+
+[module-clean]
+command=make clean
+cwd=<root>
+
+[module-test]
+command=make test_vagrant
+cwd=<root>
+output=quickfix
