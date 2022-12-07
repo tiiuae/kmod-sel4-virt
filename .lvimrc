@@ -1,0 +1,7 @@
+let g:asyncrun_rootmarks = ['.lvimrc', '.tasks']
+
+let test#strategy = "asyncrun_background"
+
+nmap <silent> <leader>c :AsyncTask module-build<CR>
+nmap <silent> <leader>m :AsyncTask module-clean<CR>
+nmap <silent> <leader>t :AsyncTask module-test<CR>
