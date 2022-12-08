@@ -188,14 +188,69 @@ static int test_vm_unknown_ioctl(void)
 	return 0;
 }
 
+static int test_create_iohandler(void)
+{
+	struct sel4_iohandler_buffer *buf;
+
+	int vm = create_vm();
+	int iohandler = create_iohandler(vm);
+	assert_gte(iohandler, 0);
+
+	buf = mmap(NULL, sizeof(*buf), PROT_READ | PROT_WRITE, MAP_SHARED, iohandler, 0);
+	assert_ne(buf, MAP_FAILED);
+
+	buf->request_slots[1].type = 1;
+
+	assert_eq(munmap(buf, sizeof(*buf)), 0);
+	assert_ne(close(iohandler), -1);
+	assert_ne(close(vm), -1);
+	return 0;
+}
+
+static int test_one_iohandler_allowed(void)
+{
+	int rc;
+	int vm = create_vm();
+	int iohandler = create_iohandler(vm);
+	assert_gte(iohandler, 0);
+
+	rc = create_iohandler(vm);
+	assert_eq(rc, -1);
+	assert_eq(errno, EEXIST);
+
+	assert_ne(close(iohandler), -1);
+	assert_ne(close(vm), -1);
+
+	return 0;
+}
+
 static int test_start_vm(void)
 {
 	int vm = create_vm();
+	int iohandler = create_iohandler(vm);
+	assert_gte(iohandler, 0);
 
 	assert_eq(start_vm(vm), 0);
 	assert_eq(consume_sent(vm), QEMU_OP_START_VM);
 
 	// ensure no excess messages
+	assert_eq(consume_sent(vm), -1);
+	assert_eq(errno, ENOMSG);
+
+	assert_ne(close(iohandler), -1);
+	assert_ne(close(vm), -1);
+
+	return 0;
+}
+
+static int test_start_vm_requires_iohandler(void)
+{
+	int vm = create_vm();
+
+	assert_eq(start_vm(vm), -1);
+	assert_eq(errno, EBADFD);
+
+	// ensure no messages sent
 	assert_eq(consume_sent(vm), -1);
 	assert_eq(errno, ENOMSG);
 
@@ -268,42 +323,6 @@ static int test_clear_irqline(void)
 	assert_eq(consume_sent(vm), -1);
 	assert_eq(errno, ENOMSG);
 
-	assert_ne(close(vm), -1);
-
-	return 0;
-}
-
-static int test_create_iohandler(void)
-{
-	struct sel4_iohandler_buffer *buf;
-
-	int vm = create_vm();
-	int iohandler = create_iohandler(vm);
-	assert_gte(iohandler, 0);
-
-	buf = mmap(NULL, sizeof(*buf), PROT_READ | PROT_WRITE, MAP_SHARED, iohandler, 0);
-	assert_ne(buf, MAP_FAILED);
-
-	buf->request_slots[1].type = 1;
-
-	assert_eq(munmap(buf, sizeof(*buf)), 0);
-	assert_ne(close(iohandler), -1);
-	assert_ne(close(vm), -1);
-	return 0;
-}
-
-static int test_one_iohandler_allowed(void)
-{
-	int rc;
-	int vm = create_vm();
-	int iohandler = create_iohandler(vm);
-	assert_gte(iohandler, 0);
-
-	rc = create_iohandler(vm);
-	assert_eq(rc, -1);
-	assert_eq(errno, EEXIST);
-
-	assert_ne(close(iohandler), -1);
 	assert_ne(close(vm), -1);
 
 	return 0;
@@ -540,13 +559,14 @@ int main(void)
 		test_vm_create_many,
 		test_char_unknown_ioctl,
 		test_vm_unknown_ioctl,
+		test_create_iohandler,
+		test_one_iohandler_allowed,
 		test_start_vm,
+		test_start_vm_requires_iohandler,
 		test_create_vpci_device,
 		test_destroy_vpci_device,
 		test_set_irqline,
 		test_clear_irqline,
-		test_create_iohandler,
-		test_one_iohandler_allowed,
 		test_ioreq_pci_op_read,
 		test_ioreq_pci_op_write,
 		test_ioreq_pci_many,

@@ -115,11 +115,19 @@ static inline int sel4_start_vm(struct sel4_vm *vm)
 
 	irqflags = sel4_vm_lock(vm);
 	if (WARN_ON(!vm->vmm || !vm->vmm->ops.start_vm)) {
-		sel4_vm_unlock(vm, irqflags);
-		return -ENODEV;
+		rc = -ENODEV;
+		goto out_unlock;
+	}
+
+	if (!vm->ioreq_buffer) {
+		pr_notice("no ioreq handler");
+		rc = -EBADFD;
+		goto out_unlock;
 	}
 
 	rc = vm->vmm->ops.start_vm(vm->vmm);
+
+out_unlock:
 	sel4_vm_unlock(vm, irqflags);
 
 	return rc;

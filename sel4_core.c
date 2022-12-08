@@ -80,7 +80,6 @@ out_unlock:
 	return rc;
 }
 
-
 static void sel4_vm_process_ioreqs(struct sel4_vm *vm)
 {
 	int rc;
