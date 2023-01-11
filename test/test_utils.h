@@ -96,9 +96,16 @@ do {                                \
 /* Return 0 on success */
 typedef int (*test_function) (void);
 
+struct test_case {
+	const char *name;
+	test_function test;
+};
+
+#define declare_test(func) { #func, func }
+
 /* Return number of failed tests cases, though usually assertion error will
  * simply exit. */
-int _run_tests(const test_function tests[], const size_t n_tests);
+int _run_tests(const struct test_case tests[], const size_t n_tests);
 #define run_tests(tests) _run_tests(tests, ARRAY_SIZE(tests))
 
 #endif /* TEST_UTILS_H */

@@ -554,23 +554,23 @@ static int test_mmap_ram(void)
 
 int main(void)
 {
-	test_function tests[] = {
-		test_vm_create,
-		test_vm_create_many,
-		test_char_unknown_ioctl,
-		test_vm_unknown_ioctl,
-		test_create_iohandler,
-		test_one_iohandler_allowed,
-		test_start_vm,
-		test_start_vm_requires_iohandler,
-		test_create_vpci_device,
-		test_destroy_vpci_device,
-		test_set_irqline,
-		test_clear_irqline,
-		test_ioreq_pci_op_read,
-		test_ioreq_pci_op_write,
-		test_ioreq_pci_many,
-		test_mmap_ram,
+	const struct test_case tests[] = {
+		declare_test(test_vm_create),
+		declare_test(test_vm_create_many),
+		declare_test(test_char_unknown_ioctl),
+		declare_test(test_vm_unknown_ioctl),
+		declare_test(test_create_iohandler),
+		declare_test(test_one_iohandler_allowed),
+		declare_test(test_start_vm),
+		declare_test(test_start_vm_requires_iohandler),
+		declare_test(test_create_vpci_device),
+		declare_test(test_destroy_vpci_device),
+		declare_test(test_set_irqline),
+		declare_test(test_clear_irqline),
+		declare_test(test_ioreq_pci_op_read),
+		declare_test(test_ioreq_pci_op_write),
+		declare_test(test_ioreq_pci_many),
+		declare_test(test_mmap_ram),
 	};
 	return run_tests(tests);
 }
