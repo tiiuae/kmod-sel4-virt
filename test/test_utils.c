@@ -79,12 +79,21 @@ void __attribute__((noinline)) _test_assert(bool exp,
 	return;
 }
 
-int _run_tests(const test_function tests[], const size_t n_tests) {
+static int process_test_result(int test_rc)
+{
+	printf("%s\n", (test_rc) ? "FAILED" : "OK");
+	/* propagate rc */
+	return test_rc;
+}
+
+int _run_tests(const struct test_case tests[], const size_t n_tests) {
 	int rc = 0;
 	size_t i;
 
 	for (i = 0; i < n_tests; i++) {
-		if ((tests[i])()) {
+		printf("%lu test %s: ", i, tests[i].name);
+		fflush(stdout);
+		if (process_test_result(tests[i].test())) {
 			rc++;
 		}
 	}
