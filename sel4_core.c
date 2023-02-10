@@ -35,61 +35,30 @@ static struct sel4_vm_server *vm_server;
 static struct workqueue_struct *sel4_ioreq_wq;
 static DECLARE_WORK(sel4_ioreq_work, sel4_vm_upcall_work);
 
-// FIXME: To be moved to vmm
-static int sel4_next_avail_slot(struct sel4_vm *vm)
-{
-	return find_first_zero_bit(vm->ioreq_map, SEL4_MAX_IOREQS);
-}
-
-static int sel4_vm_process_ioreq(struct sel4_vm *vm)
+static void sel4_vm_process_ioreqs(struct sel4_vm *vm)
 {
 	struct sel4_ioreq *ioreq;
-	struct sel4_ioreq incoming;
 	int slot;
-	int rc;
 	unsigned long irqflags;
 
 	irqflags = sel4_vm_lock(vm);
 
-	slot = sel4_next_avail_slot(vm);
-	if (WARN_ON(slot >= SEL4_MAX_IOREQS)) {
-		/* Slots full, unable to process now. */
-		rc = SEL4_IOREQ_NONE;
-		goto out_unlock;
-	}
-
-	rc = sel4_vm_call_ioreqhandler(vm, &incoming);
-	if (rc < 0)
+	if (!vm->ioreq_buffer)
 		goto out_unlock;
 
-	if (rc & SEL4_IOREQ_HANDLED && vm->ioreq_buffer &&
-	    incoming.state == SEL4_IOREQ_STATE_PENDING) {
+	for (slot = 0; slot < SEL4_MAX_IOREQS; slot++) {
 		ioreq = vm->ioreq_buffer->request_slots + slot;
-		*ioreq = incoming;
+		if (smp_load_acquire(&ioreq->state) == SEL4_IOREQ_STATE_PENDING) {
+			smp_store_release(&ioreq->state,
+					  SEL4_IOREQ_STATE_PROCESSING);
+			set_bit(slot, vm->ioreq_map);
 
-		smp_store_release(&ioreq->state,
-				  SEL4_IOREQ_STATE_PROCESSING);
-		set_bit(slot, vm->ioreq_map);
-
-		wake_up_interruptible(&vm->ioreq_wait);
+			wake_up_interruptible(&vm->ioreq_wait);
+		}
 	}
 
 out_unlock:
 	sel4_vm_unlock(vm, irqflags);
-
-	return rc;
-}
-
-static void sel4_vm_process_ioreqs(struct sel4_vm *vm)
-{
-	int rc;
-
-	do {
-		rc = sel4_vm_process_ioreq(vm);
-		if (rc < 0)
-			break;
-
-	} while(rc & SEL4_IOREQ_AGAIN);
 }
 
 static void sel4_vm_upcall_work(struct work_struct *work)
@@ -132,9 +101,14 @@ static struct sel4_vm *sel4_vm_create(struct sel4_vm_params vm_params)
 	vm->vmm = vm_server->create_vm(vm_params);
 	if (IS_ERR_OR_NULL(vm->vmm)) {
 		rc = (!vm->vmm) ? -ENOMEM : PTR_ERR(vm->vmm);
-		kfree(vm);
-		return ERR_PTR(rc);
+		goto err_free_vm;
 	}
+
+	if (!sel4_vmm_valid(vm->vmm)) {
+		rc = -EINVAL;
+		goto err_destroy_vm;
+	}
+
 	vm->vmm->vm = vm;
 
 	spin_lock_init(&vm->lock);
@@ -156,13 +130,18 @@ static struct sel4_vm *sel4_vm_create(struct sel4_vm_params vm_params)
 			list_del(&vm->vm_list);
 			write_unlock_bh(&vm_list_lock);
 
-			vm_server->destroy_vm(vm->vmm);
-			kfree(vm);
-			return ERR_PTR(rc);
+			goto err_destroy_vm;
 		}
 	}
 
 	return vm;
+
+err_destroy_vm:
+	vm_server->destroy_vm(vm->vmm);
+err_free_vm:
+	kfree(vm);
+
+	return ERR_PTR(rc);
 }
 
 static void sel4_destroy_vm(struct sel4_vm *vm)
@@ -179,10 +158,7 @@ static void sel4_destroy_vm(struct sel4_vm *vm)
 	write_unlock_bh(&vm_list_lock);
 
 	irqflags = sel4_vm_lock(vm);
-	if (vm->ioreq_buffer) {
-		free_page((unsigned long)vm->ioreq_buffer);
-		vm->ioreq_buffer = NULL;
-	}
+	vm->ioreq_buffer = NULL;
 	vm_server->destroy_vm(vm->vmm);
 	sel4_vm_unlock(vm, irqflags);
 
@@ -215,44 +191,6 @@ void sel4_put_no_destroy(struct sel4_vm *vm)
 	WARN_ON(refcount_dec_and_test(&vm->refcount));
 }
 
-static int sel4_find_mem_index(struct vm_area_struct *vma)
-{
-	return (vma->vm_pgoff) ? -1 : (int) vma->vm_pgoff;
-}
-
-static vm_fault_t sel4_iohandler_fault(struct vm_fault *vmf)
-{
-	struct sel4_vm *vm = vmf->vma->vm_file->private_data;
-	struct page *page;
-	int rc = 0;
-	unsigned long irqflags;
-
-	irqflags = sel4_vm_lock(vm);
-	if (sel4_find_mem_index(vmf->vma)) {
-		rc = VM_FAULT_SIGBUS;
-		goto out_unlock;
-	}
-	page = virt_to_page(vm->ioreq_buffer);
-	get_page(page);
-	vmf->page = page;
-
-out_unlock:
-	sel4_vm_unlock(vm, irqflags);
-
-	return rc;
-}
-
-static const struct vm_operations_struct sel4_iohandler_vm_ops = {
-	.fault = sel4_iohandler_fault,
-};
-
-static int sel4_iohandler_mmap(struct file *file, struct vm_area_struct *vma)
-{
-	vma->vm_flags |= VM_DONTEXPAND | VM_DONTDUMP;
-	vma->vm_ops = &sel4_iohandler_vm_ops;
-	return 0;
-}
-
 static int sel4_iohandler_release(struct inode *inode, struct file *filp)
 {
 	struct sel4_vm *vm = filp->private_data;
@@ -270,26 +208,17 @@ static struct file_operations sel4_iohandler_fops = {
 static int sel4_vm_create_iohandler(struct sel4_vm *vm)
 {
 	int rc;
-	int i;
-	struct page *page;
 	unsigned long irqflags;
 
+
+	irqflags = sel4_vm_lock(vm);
 	if (vm->ioreq_buffer) {
+		sel4_vm_unlock(vm, irqflags);
 		return -EEXIST;
 	}
 
-	page = alloc_page(GFP_KERNEL | __GFP_ZERO);
-	if (!page) {
-		return -ENOMEM;
-	}
-
-	irqflags = sel4_vm_lock(vm);
-	vm->ioreq_buffer = page_address(page);
-	for (i = 0; i < SEL4_MAX_IOREQS; i++) {
-		vm->ioreq_buffer->request_slots[i].state = SEL4_IOREQ_STATE_FREE;
-	}
+	vm->ioreq_buffer = (struct sel4_iohandler_buffer *) vm->vmm->iobuf.service_vm_va;
 	sel4_vm_unlock(vm, irqflags);
-
 
 	/* new fd for iohandler */
 	sel4_vm_get(vm);
@@ -302,7 +231,6 @@ static int sel4_vm_create_iohandler(struct sel4_vm *vm)
 
 error:
 	irqflags = sel4_vm_lock(vm);
-	free_page((unsigned long)vm->ioreq_buffer);
 	vm->ioreq_buffer = NULL;
 	sel4_vm_unlock(vm, irqflags);
 
@@ -311,21 +239,22 @@ error:
 	return rc;
 }
 
-static int sel4_vm_ioreq_complete(struct sel4_vm *vm, u16 slot)
+static int sel4_vm_ioreq_complete(struct sel4_vm *vm, u32 slot)
 {
 	struct sel4_ioreq *ioreq;
 	int rc = 0;
 	unsigned long irqflags;
 
-	if (slot >= SEL4_MAX_IOREQS) {
+	if (!SEL4_IOREQ_SLOT_VALID(slot)) {
 		return -EINVAL;
 	}
+
 	irqflags = sel4_vm_lock(vm);
 	if (vm->ioreq_buffer) {
 		clear_bit(slot, vm->ioreq_map);
 		ioreq = vm->ioreq_buffer->request_slots + slot;
 		smp_store_release(&ioreq->state, SEL4_IOREQ_STATE_COMPLETE);
-		rc = sel4_vm_notify_io_handled(vm, ioreq);
+		rc = sel4_vm_notify_io_handled(vm, slot);
 	} else {
 		rc = -ENODEV;
 	}
@@ -430,129 +359,6 @@ static long sel4_vm_ioctl(struct file *filp, unsigned int ioctl,
 	}
 
 	return rc;
-}
-
-static vm_fault_t sel4_ram_vma_fault(struct vm_fault *vmf)
-{
-	struct sel4_vm *vm = vmf->vma->vm_private_data;
-	struct page *page;
-	unsigned long offset;
-	void *addr;
-	vm_fault_t rc = 0;
-	int index;
-	unsigned long irqflags;
-
-	irqflags = sel4_vm_lock(vm);
-	if (!vm->vmm) {
-		rc = VM_FAULT_SIGBUS;
-		goto out_unlock;
-	}
-
-	index = sel4_find_mem_index(vmf->vma);
-	if (index < 0) {
-		rc = VM_FAULT_SIGBUS;
-		goto out_unlock;
-	}
-
-	offset = (vmf->pgoff - index) << PAGE_SHIFT;
-
-	addr = (void *)(unsigned long)vm->vmm->ram.addr + offset;
-	if (vm->vmm->ram.type == SEL4_MEM_LOGICAL)
-		page = virt_to_page(addr);
-	else
-		page = vmalloc_to_page(addr);
-	get_page(page);
-	vmf->page = page;
-
-out_unlock:
-	sel4_vm_unlock(vm, irqflags);
-
-	return rc;
-}
-
-static const struct vm_operations_struct sel4_ram_logical_vm_ops = {
-	.fault = sel4_ram_vma_fault,
-};
-
-static int sel4_ram_mmap_logical(struct vm_area_struct *vma)
-{
-	vma->vm_flags |= VM_DONTEXPAND | VM_DONTDUMP;
-	vma->vm_ops = &sel4_ram_logical_vm_ops;
-	return 0;
-}
-
-static const struct vm_operations_struct sel4_ram_physical_vm_ops = {
-#ifdef CONFIG_HAVE_IOREMAP_PROT
-	.access = generic_access_phys,
-#endif
-};
-
-static int sel4_ram_mmap_physical(struct vm_area_struct *vma)
-{
-	struct sel4_vm *vm = vma->vm_private_data;
-
-	if (sel4_find_mem_index(vma))
-		return -EINVAL;
-
-	if (vm->vmm->ram.addr & ~PAGE_MASK)
-		return -ENODEV;
-
-	if (vma->vm_end - vma->vm_start > vm->vmm->ram.size)
-		return -EINVAL;
-
-	vma->vm_ops = &sel4_ram_physical_vm_ops;
-
-	return remap_pfn_range(vma,
-			       vma->vm_start,
-			       vm->vmm->ram.addr >> PAGE_SHIFT,
-			       vma->vm_end - vma->vm_start,
-			       vma->vm_page_prot);
-}
-
-static int sel4_vm_mmap_ram(struct file *filp, struct vm_area_struct *vma)
-{
-	struct sel4_vm *vm = filp->private_data;
-	unsigned long requested_pages, actual_pages;
-	int rc = 0;
-	unsigned long irqflags;
-
-	BUG_ON(!vm);
-
-	if (vma->vm_end < vma->vm_start)
-		return -EINVAL;
-
-	vma->vm_private_data = vm;
-
-	irqflags = sel4_vm_lock(vm);
-	if (sel4_find_mem_index(vma) < 0) {
-		rc = -EINVAL;
-		goto out_unlock;
-	}
-
-	requested_pages = vma_pages(vma);
-	actual_pages = ((vm->vmm->ram.addr & ~PAGE_MASK)
-			+ vm->vmm->ram.size + PAGE_SIZE - 1) >> PAGE_SHIFT;
-	if (requested_pages > actual_pages) {
-		rc = -EINVAL;
-		goto out_unlock;
-	}
-
-	switch (vm->vmm->ram.type) {
-	case SEL4_MEM_IOVA:	/* shared memory with guest vmm */
-		rc = sel4_ram_mmap_physical(vma);
-		break;
-	case SEL4_MEM_LOGICAL:	/* kmalloc'd */
-	case SEL4_MEM_VIRTUAL:	/* vmalloc'd */
-		rc = sel4_ram_mmap_logical(vma);
-		break;
-	default:
-		rc = -EINVAL;
-	}
-
-out_unlock:
-	sel4_vm_unlock(vm, irqflags);
-	return rc;
-
 }
 
 static int sel4_vm_release(struct inode *inode, struct file *filp)

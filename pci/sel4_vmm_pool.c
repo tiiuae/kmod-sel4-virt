@@ -28,24 +28,6 @@ struct sel4_vmmpool_entry {
 	struct sel4_vmm *vmm;
 };
 
-static bool sel4_mem_map_valid(struct sel4_mem_map *mem)
-{
-	if (WARN_ON(IS_ERR_OR_NULL(mem))) {
-		return false;
-	}
-
-	return (mem->size && mem->service_vm_va);
-}
-
-static bool sel4_vmm_valid(struct sel4_vmm *vmm)
-{
-	if (WARN_ON(IS_ERR_OR_NULL(vmm))) {
-		return false;
-	}
-
-	return sel4_mem_map_valid(&vmm->ram);
-}
-
 int sel4_vmmpool_add(struct sel4_vmm *vmm)
 {
 	struct sel4_vmmpool_entry *entry;
