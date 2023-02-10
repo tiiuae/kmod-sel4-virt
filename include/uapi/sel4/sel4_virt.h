@@ -54,6 +54,10 @@ struct sel4_ioreq {
 	} req;
 } __attribute__((aligned(128)));
 
+
+#define SEL4_IOREQ_SLOT_VALID(_slot) \
+	((_slot) >= 0 && (_slot) < (SEL4_MAX_IOREQS))
+
 struct sel4_iohandler_buffer {
 	union {
 		struct sel4_ioreq	request_slots[SEL4_MAX_IOREQS];

@@ -362,7 +362,9 @@ static int test_ioreq_pci_op_read(void)
 	struct sel4_iohandler_buffer *buf;
 	struct sel4_ioreq *ioreq;
 	struct sel4_test_ioreq inject = {
+		.slot = 0,
 		.ioreq = {
+			.state = SEL4_IOREQ_STATE_PENDING,
 			.type = SEL4_IOREQ_TYPE_PCI,
 			.req.pci.direction = SEL4_IO_DIR_READ,
 			.req.pci.pcidev = 0x1,
@@ -398,7 +400,7 @@ static int test_ioreq_pci_op_read(void)
 
 	// ensure processed
 	assert_eq(atomic_load(&ioreq->state), SEL4_IOREQ_STATE_FREE);
-	assert_eq(consume_sent(vm), QEMU_OP_READ);
+	assert_eq(consume_sent(vm), QEMU_OP_IO_HANDLED);
 
 	// ensure no excess messages
 	assert_eq(consume_sent(vm), -1);
@@ -416,7 +418,9 @@ static int test_ioreq_pci_op_write(void)
 	struct sel4_iohandler_buffer *buf;
 	struct sel4_ioreq *ioreq;
 	struct sel4_test_ioreq inject = {
+		.slot = 0,
 		.ioreq = {
+			.state = SEL4_IOREQ_STATE_PENDING,
 			.type = SEL4_IOREQ_TYPE_PCI,
 			.req.pci.direction = SEL4_IO_DIR_WRITE,
 			.req.pci.pcidev = 0x1,
@@ -449,7 +453,7 @@ static int test_ioreq_pci_op_write(void)
 
 	// ensure processed
 	assert_eq(atomic_load(&ioreq->state), SEL4_IOREQ_STATE_FREE);
-	assert_eq(consume_sent(vm), QEMU_OP_WRITE);
+	assert_eq(consume_sent(vm), QEMU_OP_IO_HANDLED);
 
 	// ensure no excess messages
 	assert_eq(consume_sent(vm), -1);
@@ -467,7 +471,10 @@ static int test_ioreq_pci_many(void)
 	struct sel4_iohandler_buffer *buf;
 	struct sel4_ioreq *ioreq[2];
 	struct sel4_test_ioreq inject[2] = {{
+		.slot = 0,
 		.ioreq = {
+			.state = SEL4_IOREQ_STATE_PENDING,
+			.type = SEL4_IOREQ_TYPE_PCI,
 			.req.pci.direction = SEL4_IO_DIR_WRITE,
 			.req.pci.pcidev = 0x1,
 			.req.pci.addr = 0x123,
@@ -475,7 +482,10 @@ static int test_ioreq_pci_many(void)
 			.req.pci.data = 0xAB
 		},
 	}, {
+		.slot = 1,
 		.ioreq = {
+			.state = SEL4_IOREQ_STATE_PENDING,
+			.type = SEL4_IOREQ_TYPE_PCI,
 			.req.pci.direction = SEL4_IO_DIR_READ,
 			.req.pci.pcidev = 0x1,
 			.req.pci.addr = 0x123,
@@ -525,7 +535,7 @@ static int test_ioreq_pci_many(void)
 		// ensure processed
 		assert_eq(atomic_load(&ioreq[slot]->state), SEL4_IOREQ_STATE_FREE);
 
-		assert_eq(consume_sent(vm), (ioreq[slot]->req.pci.direction == SEL4_IO_DIR_WRITE) ? QEMU_OP_WRITE : QEMU_OP_READ);
+		assert_eq(consume_sent(vm), QEMU_OP_IO_HANDLED);
 	}
 
 	// ensure no excess messages

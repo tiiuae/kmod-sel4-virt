@@ -52,7 +52,8 @@ int sel4_rpc_start_vm(struct sel4_rpc *rpc)
 int sel4_rpc_create_vpci_device(struct sel4_rpc *rpc, u32 pcidev)
 {
 	rpcmsg_t msg = {
-		.mr0 = QEMU_OP_REGISTER_PCI_DEV | (pcidev << QEMU_PCIDEV_SHIFT),
+		.mr0 = QEMU_OP_REGISTER_PCI_DEV,
+		.mr1 = pcidev,
 	};
 
 	BUG_ON(!rpc);
@@ -84,19 +85,15 @@ int sel4_rpc_clear_irqline(struct sel4_rpc *rpc, u32 irq)
 	return sel4_rpc_send_msg(rpc, &msg);
 }
 
-int sel4_rpc_notify_io_handled(struct sel4_rpc *rpc,
-			       struct sel4_ioreq *ioreq)
+int sel4_rpc_notify_io_handled(struct sel4_rpc *rpc, u32 slot)
 {
-	rpcmsg_t msg;
-	int rc;
+	rpcmsg_t msg = {
+		.mr0 = QEMU_OP_IO_HANDLED,
+		.mr1 = slot,
+	};
+
 
 	BUG_ON(!rpc);
-
-	rc = sel4_rpc_ioreq_to_msg(ioreq, &msg);
-	if (rc)
-		return rc;
-
-	smp_store_release(&ioreq->state, SEL4_IOREQ_STATE_FREE);
 
 	return sel4_rpc_send_msg(rpc, &msg);
 }

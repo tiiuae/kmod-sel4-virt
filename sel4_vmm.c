@@ -3,7 +3,7 @@
  * Copyright 2022, Technology Innovation Institute
  *
  */
-
+#include "linux/mm.h"
 #include "linux/atomic.h"
 #include "linux/types.h"
 #include "linux/slab.h"
@@ -12,13 +12,34 @@
 
 static atomic_t id = ATOMIC_INIT(0);
 
-bool vmm_ops_valid(struct sel4_vmm_ops ops)
+static bool vmm_ops_valid(struct sel4_vmm_ops ops)
 {
 	return (ops.start_vm &&
 		ops.create_vpci_device &&
 		ops.set_irqline &&
-		ops.upcall_ioreqhandler &&
 		ops.notify_io_handled);
+}
+
+static bool sel4_mem_map_valid(struct sel4_mem_map *mem)
+{
+	if (WARN_ON(IS_ERR_OR_NULL(mem))) {
+		return false;
+	}
+
+	return (mem->size &&
+		mem->service_vm_va &&
+		PAGE_ALIGNED(mem->service_vm_va));
+}
+
+bool sel4_vmm_valid(struct sel4_vmm *vmm)
+{
+	if (WARN_ON(IS_ERR_OR_NULL(vmm))) {
+		return false;
+	}
+
+	return (sel4_mem_map_valid(&vmm->ram) &&
+		sel4_mem_map_valid(&vmm->iobuf) &&
+		vmm_ops_valid(vmm->ops));
 }
 
 struct sel4_vmm *sel4_vmm_alloc(struct sel4_vmm_ops ops)

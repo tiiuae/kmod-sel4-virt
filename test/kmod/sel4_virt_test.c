@@ -24,37 +24,28 @@
 
 /* Functions for injecting ioreqs from user space */
 static int sel4_test_inject_ioreq(struct sel4_vm *vm,
-				  struct sel4_ioreq *inject)
+				  struct sel4_test_ioreq *inject)
 {
 	int rc = 0;
-	struct sel4_rpc *rpc;
-	rpcmsg_t *msg;
 	unsigned long irqflags;
 
-	if (WARN_ON(!vm && !inject))
+	if (WARN_ON(!vm || !inject || !SEL4_IOREQ_SLOT_VALID(inject->slot)))
 		return -EINVAL;
 
 	irqflags = sel4_vm_lock(vm);
-	rpc = (struct sel4_rpc *) vm->vmm->private;
-	if (WARN_ON(!rpc)) {
-		rc = -EINVAL;
+
+	if (WARN_ON(!vm->ioreq_buffer)) {
+		rc = -ENODEV;
 		goto out_unlock;
 	}
 
-	msg = rpcmsg_queue_tail(rpc->rx_queue);
-	if (!msg) {
-		rc = -ENOMEM;
-		goto out_unlock;
-	}
-
-	sel4_rpc_ioreq_to_msg(inject, msg);
-
-	rpcmsg_queue_advance_tail(rpc->rx_queue);
+	vm->ioreq_buffer->request_slots[inject->slot] = inject->ioreq;
+	smp_mb();
 
 out_unlock:
 	sel4_vm_unlock(vm, irqflags);
 
-	return 0;
+	return rc;
 }
 
 static int sel4_test_inject_upcall(struct sel4_vm *vm)
@@ -128,12 +119,19 @@ static void sel4_test_doorbell(void *private)
 	case QEMU_OP_CLR_IRQ:
 		pr_info("QEMU_OP_CLR_IRQ sent\n");
 		break;
-	case QEMU_OP_READ:
-		pr_info("QEMU_OP_READ sent\n");
+	case QEMU_OP_IO_HANDLED: {
+		struct sel4_iohandler_buffer *iobuf = vmm->iobuf.service_vm_va;
+
+		pr_info("QEMU_OP_IO_HANDLED sent\n");
+
+		if (WARN_ON(!SEL4_IOREQ_SLOT_VALID(msg->mr1))) {
+			break;
+		}
+
+		smp_store_release(&iobuf->request_slots[msg->mr1].state,
+				  SEL4_IOREQ_STATE_FREE);
 		break;
-	case QEMU_OP_WRITE:
-		pr_info("QEMU_OP_WRITE sent\n");
-		break;
+	}
 	default:
 		pr_info("unknown message\n");
 		break;
@@ -146,7 +144,7 @@ static int sel4_test_mem_alloc(struct sel4_mem_map *mem, resource_size_t size)
 		return -EINVAL;
 
 	mem->type = SEL4_MEM_VIRTUAL;
-	mem->service_vm_va = vmalloc(size);
+	mem->service_vm_va = vzalloc(size);
 	if (!mem->service_vm_va)
 		return -ENOMEM;
 
@@ -170,7 +168,6 @@ struct sel4_vmm_ops sel4_test_vmm_ops = {
 	.create_vpci_device = sel4_rpc_op_create_vpci_device,
 	.destroy_vpci_device = sel4_rpc_op_destroy_vpci_device,
 	.set_irqline = sel4_rpc_op_set_irqline,
-	.upcall_ioreqhandler = sel4_rpc_op_ioreqhandler,
 	.notify_io_handled = sel4_rpc_op_notify_io_handled,
 };
 
@@ -195,9 +192,13 @@ static struct sel4_vmm *sel4_test_vmm_create(struct sel4_vm_params params)
 		goto free_vmm;
 	}
 
-	rc = sel4_test_mem_alloc(&vmm->ram, params.ram_size);
+	rc = sel4_test_mem_alloc(&vmm->iobuf, PAGE_SIZE);
 	if (rc)
 		goto free_rpcbuf;
+
+	rc = sel4_test_mem_alloc(&vmm->ram, params.ram_size);
+	if (rc)
+		goto free_iobuf;
 
 	rpc = sel4_rpc_create(tx_queue(rpc_buffer),
 			      rx_queue(rpc_buffer),
@@ -214,6 +215,8 @@ static struct sel4_vmm *sel4_test_vmm_create(struct sel4_vm_params params)
 
 free_ram:
 	sel4_test_mem_free(&vmm->ram);
+free_iobuf:
+	sel4_test_mem_free(&vmm->iobuf);
 free_rpcbuf:
 	vfree(rpc_buffer);
 free_vmm:
@@ -237,6 +240,7 @@ static int sel4_test_vmm_destroy(struct sel4_vmm *vmm)
 		vmm->private = NULL;
 	}
 
+	sel4_test_mem_free(&vmm->iobuf);
 	sel4_test_mem_free(&vmm->ram);
 
 	kfree(vmm);
@@ -259,7 +263,7 @@ long sel4_module_ioctl(struct file *filp, unsigned int ioctl,
 		if (copy_from_user(&inject, (void __user *) arg, sizeof(inject)))
 			return -EFAULT;
 
-		rc = sel4_test_inject_ioreq(vm, &inject.ioreq);
+		rc = sel4_test_inject_ioreq(vm, &inject);
 		break;
 	}
 	case SEL4_TEST_INJECT_UPCALL: {

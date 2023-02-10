@@ -9,6 +9,7 @@
 #include "sel4/sel4_virt.h"
 
 struct sel4_test_ioreq {
+	__u64 slot;
 	struct sel4_ioreq ioreq;
 };
 

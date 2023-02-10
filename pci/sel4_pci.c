@@ -18,8 +18,9 @@
 
 /* We have two types of dataports, control and ram */
 #define SEL4_DATAPORT_CONTROL	0
-#define SEL4_DATAPORT_RAM	1
-#define SEL4_DATAPORT_LAST	2
+#define SEL4_DATAPORT_IOBUF	1
+#define SEL4_DATAPORT_RAM	2
+#define SEL4_DATAPORT_LAST	3
 
 /* Dataport states: when the dataport is associated with vmm, the state is
  * active. When dataport still in use is going to be removed, the state is
@@ -34,6 +35,7 @@
 
 char *dataport_match[SEL4_DATAPORT_LAST] = {
 	"guest-control",
+	"guest-iobuf",
 	"guest-ram",
 };
 
@@ -173,7 +175,6 @@ struct sel4_vmm_ops sel4_test_vmm_ops = {
 	.destroy_vpci_device = sel4_rpc_op_destroy_vpci_device,
 	.set_irqline = sel4_rpc_op_set_irqline,
 	.upcall_irqhandler = sel4_pci_irqhandler,
-	.upcall_ioreqhandler = sel4_rpc_op_ioreqhandler,
 	.notify_io_handled = sel4_rpc_op_notify_io_handled,
 };
 
@@ -191,6 +192,8 @@ static int sel4_pci_vmm_create(struct sel4_dataport * dataports[])
 	vmm->irq = dataports[SEL4_DATAPORT_CONTROL]->dev->irq;
 	vmm->irq_flags = IRQF_SHARED;
 
+	vmm->iobuf = dataports[SEL4_DATAPORT_IOBUF]->mem[1];
+
 	rpc = sel4_rpc_create(tx_queue(dataports[SEL4_DATAPORT_CONTROL]->mem[1].service_vm_va),
 			      rx_queue(dataports[SEL4_DATAPORT_CONTROL]->mem[1].service_vm_va),
 			      sel4_pci_doorbell,
@@ -204,9 +207,11 @@ static int sel4_pci_vmm_create(struct sel4_dataport * dataports[])
 	vmm->private = rpc;
 
 	dataports[SEL4_DATAPORT_CONTROL]->vmm_id = vmm->id;
+	dataports[SEL4_DATAPORT_IOBUF]->vmm_id = vmm->id;
 	dataports[SEL4_DATAPORT_RAM]->vmm_id = vmm->id;
 
 	dataports[SEL4_DATAPORT_CONTROL]->state = SEL4_DATAPORT_ACTIVE;
+	dataports[SEL4_DATAPORT_IOBUF]->state = SEL4_DATAPORT_ACTIVE;
 	dataports[SEL4_DATAPORT_RAM]->state = SEL4_DATAPORT_ACTIVE;
 
 	rc = sel4_vmmpool_add(vmm);
@@ -289,8 +294,9 @@ static int sel4_pci_probe(struct pci_dev *dev,
 	/* The format of the name must be:
 	 * <buftype>-<vmid>
 	 *
-	 * where 'buftype' is either 'vmm-control' or 'guest-ram', and 'vmid'
-	 * is positive integer distinguishing different VMs.
+	 * where 'buftype' is 'guest-control', 'guest-iobuf' or
+	 * 'guest-ram', and 'vmid' is positive integer distinguishing
+	 * different VMs.
 	 */
 	event_bar = dataport->mem[0].service_vm_va;
 	strncpy(dataport->name, (char *)&event_bar[SEL4_DEVICE_NAME_REGISTER_OFFSET], SEL4_DEVICE_NAME_MAX_LEN);
@@ -322,12 +328,13 @@ static int sel4_pci_probe(struct pci_dev *dev,
 		    entry->dataport_type != dataport->dataport_type &&
 		    entry->dataport_type < SEL4_DATAPORT_LAST) {
 			dataports[entry->dataport_type] = entry;
-			break;
 		}
 	}
 	dataports[dataport->dataport_type] = dataport;
 
-	if (dataports[SEL4_DATAPORT_CONTROL] && dataports[SEL4_DATAPORT_RAM]) {
+	if (dataports[SEL4_DATAPORT_CONTROL] &&
+	    dataports[SEL4_DATAPORT_IOBUF] &&
+	    dataports[SEL4_DATAPORT_RAM]) {
 		rc = sel4_pci_vmm_create(dataports);
 		if (rc) {
 			mutex_unlock(&sel4_dataports_lock);

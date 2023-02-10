@@ -50,18 +50,7 @@ struct sel4_vmm_ops {
 	/* irq handler */
 	irqreturn_t (*upcall_irqhandler)(int irq, struct sel4_vmm *);
 
-	/* bit masks for ioreqhanbler returns. When ioreq was received and
-	 * placed to 'ioreq', the handler should return with
-	 * SEL4_IOREQ_HANDLED mask set. If the handler has received additional
-	 * ioreqr that it wants to have processed, OR the return with
-	 * SEL4_IOREQ_AGAIN.
-	 */
-#define SEL4_IOREQ_NONE		(0 << 0)
-#define SEL4_IOREQ_HANDLED	(1 << 1)
-#define SEL4_IOREQ_AGAIN	(1 << 2)
-	/* workqueue handler for processing: ioreq allocated by the caller. */
-	int (*upcall_ioreqhandler)(struct sel4_vmm *, struct sel4_ioreq *ioreq);
-	int (*notify_io_handled)(struct sel4_vmm *, struct sel4_ioreq *);
+	int (*notify_io_handled)(struct sel4_vmm *, u32 slot);
 };
 
 /* Use this to indicate that the VMM uses some other upcall mechanism,
@@ -74,6 +63,7 @@ struct sel4_vmm {
 	int			irq;
 	unsigned long		irq_flags;
 	struct sel4_vmm_ops	ops;
+	struct sel4_mem_map	iobuf;
 	struct sel4_mem_map	ram;
 	struct sel4_vm		*vm;
 	void			*private;
@@ -195,11 +185,11 @@ static inline int sel4_vm_set_irqline(struct sel4_vm *vm, u32 irq, u32 op)
 	return rc;
 }
 
-static inline int sel4_vm_notify_io_handled(struct sel4_vm *vm, struct sel4_ioreq *ioreq)
+static inline int sel4_vm_notify_io_handled(struct sel4_vm *vm, u32 slot)
 {
 	int rc;
 
-	if (WARN_ON(!vm || !ioreq))
+	if (WARN_ON(!vm || !SEL4_IOREQ_SLOT_VALID(slot)))
 		return -EINVAL;
 
 	lockdep_assert_held(&vm->lock);
@@ -208,7 +198,7 @@ static inline int sel4_vm_notify_io_handled(struct sel4_vm *vm, struct sel4_iore
 		return -ENODEV;
 	}
 
-	rc = vm->vmm->ops.notify_io_handled(vm->vmm, ioreq);
+	rc = vm->vmm->ops.notify_io_handled(vm->vmm, slot);
 
 	return rc;
 }
@@ -249,25 +239,6 @@ static inline int sel4_vm_irqfd_config(struct sel4_vm *vm,
 	return -ENOSYS;
 }
 
-static inline int sel4_vm_call_ioreqhandler(struct sel4_vm *vm,
-					    struct sel4_ioreq *out_ioreq)
-{
-	int rc;
-
-	if (WARN_ON(!vm || !out_ioreq))
-		return -EINVAL;
-
-	lockdep_assert_held(&vm->lock);
-
-	if (WARN_ON(!vm->vmm || !vm->vmm->ops.upcall_ioreqhandler)) {
-		return -ENODEV;
-	}
-
-	rc = vm->vmm->ops.upcall_ioreqhandler(vm->vmm, out_ioreq);
-
-	return rc;
-}
-
 static inline irqreturn_t sel4_vm_call_irqhandler(struct sel4_vm *vm, int irq)
 {
 	irqreturn_t rc;
@@ -302,6 +273,10 @@ int sel4_notify_vmm_dying(int id);
 long sel4_module_ioctl(struct file *filp, unsigned int ioctl,
 		       unsigned long arg);
 
+int sel4_iohandler_mmap(struct file *filp, struct vm_area_struct *vma);
+int sel4_vm_mmap_ram(struct file *filp, struct vm_area_struct *vma);
+
 struct sel4_vmm *sel4_vmm_alloc(struct sel4_vmm_ops ops);
+bool sel4_vmm_valid(struct sel4_vmm *vmm);
 
 #endif /* __SEL4_VIRT_DRV_H */

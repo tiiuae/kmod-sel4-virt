@@ -7,7 +7,7 @@ prefix ?= /usr/local
 includedir = $(prefix)/include
 
 ifneq ($(KERNELRELEASE),)
-sel4_virt := sel4_core.o sel4_vmm.o sel4_rpc.o
+sel4_virt := sel4_core.o sel4_vmm.o sel4_rpc.o sel4_mmap.o
 sel4_pci := pci/sel4_pci.o pci/sel4_vmm_pool.o
 
 obj-m := sel4_virt.o sel4_virt_test.o
