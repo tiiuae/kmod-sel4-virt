@@ -17,7 +17,10 @@ sel4_virt_test-y := $(sel4_virt) test/kmod/sel4_virt_test.o
 ccflags-y := -I$(src)/include/uapi -I$(src)
 else
 
-DEPS := include/uapi/sel4/sel4_virt.h \
+PUB_HEADERS := include/uapi/sel4/sel4_virt.h \
+	       include/uapi/sel4/sel4_virt_types.h \
+
+DEPS := $(PUB_HEADERS) \
 	sel4_virt_drv.h \
 	sel4_rpc.h \
 	sel4_vmm_rpc.h \
@@ -42,9 +45,9 @@ default: $(DEPS)
 modules_install:
 	$(MAKE) -C $(KERNEL_SRC) M=$(SRC) $(MAKEFLAGS) modules_install
 
-headers_install:
-	install -m 0644 -D include/uapi/sel4/sel4_virt.h \
-		$(INSTALL_HDR_PATH)/$(includedir)/sel4/sel4_virt.h
+headers_install: $(PUB_HEADERS)
+	install -m 0644 -D -t $(INSTALL_HDR_PATH)/$(includedir)/sel4 \
+		$(PUB_HEADERS)
 
 test: test_run
 
@@ -68,6 +71,6 @@ clean:
 	$(MAKE) -C $(KERNEL_SRC) M=$(SRC) clean
 	rm -f test/test_sel4
 
-.PHONY: default modules_install clean test test_run vagrant test_vagrant
+.PHONY: default modules_install headers_install clean test test_run vagrant test_vagrant
 
 endif
