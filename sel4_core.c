@@ -18,6 +18,7 @@
 #include <linux/interrupt.h>
 #include <linux/mm.h>
 #include <linux/mm_types.h>
+#include <linux/eventfd.h>
 
 #include "sel4/sel4_virt.h"
 #include "sel4_virt_drv.h"
@@ -49,6 +50,9 @@ static void sel4_vm_process_ioreqs(struct sel4_vm *vm)
 	for (slot = 0; slot < SEL4_MAX_IOREQS; slot++) {
 		ioreq = vm->ioreq_buffer->request_slots + slot;
 		if (smp_load_acquire(&ioreq->state) == SEL4_IOREQ_STATE_PENDING) {
+			if (sel4_vm_ioeventfd_process(vm, slot) == SEL4_IOEVENTFD_PROCESSED)
+				continue;
+
 			smp_store_release(&ioreq->state,
 					  SEL4_IOREQ_STATE_PROCESSING);
 			set_bit(slot, vm->ioreq_map);
@@ -116,7 +120,10 @@ static struct sel4_vm *sel4_vm_create(struct sel4_vm_params vm_params)
 	refcount_set(&vm->refcount, 1);
 
 	/* FIXME: to own file */
+	vm->ioreq_buffer = NULL;
 	init_waitqueue_head(&vm->ioreq_wait);
+
+	INIT_LIST_HEAD(&vm->ioeventfds);
 
 	write_lock_bh(&vm_list_lock);
 	list_add(&vm->vm_list, &vm_list);
@@ -321,10 +328,8 @@ static long sel4_vm_ioctl(struct file *filp, unsigned int ioctl,
 		rc = sel4_vm_set_irqline(vm, irq.irq, irq.op);
 		break;
 	}
-
-
 	case SEL4_IOEVENTFD: {
-		struct sel4_ioeventfd ioeventfd;
+		struct sel4_ioeventfd_config ioeventfd;
 		if (copy_from_user(&ioeventfd, (void __user *) arg,
 				   sizeof(ioeventfd)))
 			return -EFAULT;
@@ -333,7 +338,7 @@ static long sel4_vm_ioctl(struct file *filp, unsigned int ioctl,
 		break;
 	}
 	case SEL4_IRQFD: {
-		struct sel4_irqfd irqfd;
+		struct sel4_irqfd_config irqfd;
 		if (copy_from_user(&irqfd, (void __user *) arg, sizeof(irqfd)))
 			return -EFAULT;
 
