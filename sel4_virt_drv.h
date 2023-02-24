@@ -69,16 +69,21 @@ struct sel4_vmm {
 	void			*private;
 };
 
+/* Indicates whether ioeventfd processed the ioreq */
+#define SEL4_IOEVENTFD_PROCESSED	(1)
+#define SEL4_IOEVENTFD_NONE		(0)
+
 struct sel4_vm {
 	struct list_head	vm_list;
 	spinlock_t		lock;
 	refcount_t		refcount;
 
-	// FIXME: move to own file.
-	// FIXME: consider ioeventfds
 	wait_queue_head_t	ioreq_wait;
 	struct sel4_iohandler_buffer *ioreq_buffer;
 	DECLARE_BITMAP(ioreq_map, SEL4_MAX_IOREQS);
+
+	struct list_head	ioeventfds;
+
 	struct sel4_vmm		*vmm;
 };
 
@@ -203,26 +208,8 @@ static inline int sel4_vm_notify_io_handled(struct sel4_vm *vm, u32 slot)
 	return rc;
 }
 
-static inline int sel4_vm_ioeventfd_config(struct sel4_vm *vm,
-					   struct sel4_ioeventfd *ioeventfd)
-{
-	unsigned long irqflags;
-
-	if (WARN_ON(!vm || !ioeventfd))
-		return -EINVAL;
-
-	irqflags = sel4_vm_lock(vm);
-	if (WARN_ON(!vm->vmm)) {
-		sel4_vm_unlock(vm, irqflags);
-		return -ENODEV;
-	}
-	sel4_vm_unlock(vm, irqflags);
-
-	return -ENOSYS;
-}
-
 static inline int sel4_vm_irqfd_config(struct sel4_vm *vm,
-				       struct sel4_irqfd *irqfd)
+				       struct sel4_irqfd_config *irqfd)
 {
 	unsigned long irqflags;
 
@@ -261,7 +248,37 @@ unlock:
 	return rc;
 }
 
+static inline int sel4_ioreq_unravel(struct sel4_ioreq *ioreq, u32 *direction, u64 *addr, u64 *len, u64 *data)
+{
+	if (WARN_ON(!ioreq || !direction || !addr || !len || !data))
+		return -EINVAL;
+
+	if (ioreq->type == SEL4_IOREQ_TYPE_MMIO) {
+		*direction = ioreq->req.mmio.direction;
+		*addr = ioreq->req.mmio.addr;
+		*len = ioreq->req.mmio.len;
+		*data = ioreq->req.mmio.data;
+	} else {
+		*direction = ioreq->req.pci.direction;
+		*addr = ioreq->req.pci.addr;
+		*len = ioreq->req.pci.len;
+		*data = ioreq->req.pci.data;
+	}
+
+	return 0;
+}
+
 void sel4_vm_upcall_notify(struct sel4_vm *vm);
+
+int sel4_vm_ioeventfd_config(struct sel4_vm *vm,
+			     struct sel4_ioeventfd_config *config);
+
+/* Returns SEL4_IOEVENTFD_PROCESSED or SEL4_IOEVENTFD_NONE to indicate whether
+ * ioeventfd processed the ioreq.
+ *
+ * On errors a negative value is returned.
+ */
+int sel4_vm_ioeventfd_process(struct sel4_vm *vm, int slot);
 
 int sel4_init(struct sel4_vm_server *vm_server, struct module *module);
 void sel4_exit(void);

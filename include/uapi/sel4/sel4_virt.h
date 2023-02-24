@@ -10,11 +10,11 @@
 
 #include "sel4_virt_types.h"
 
-#define SEL4_IOEVENTFD_FLAG_PIO		0x01
-#define SEL4_IOEVENTFD_FLAG_DATAMATCH	0x02
-#define SEL4_IOEVENTFD_FLAG_DEASSIGN	0x04
+#define SEL4_IOEVENTFD_FLAG_PCI		(1 << 0)
+#define SEL4_IOEVENTFD_FLAG_DATAMATCH	(1 << 1)
+#define SEL4_IOEVENTFD_FLAG_DEASSIGN	(1 << 2)
 
-struct sel4_ioeventfd {
+struct sel4_ioeventfd_config {
 	__s32	fd;
 	__u32	flags;
 	__u64	addr;
@@ -25,7 +25,7 @@ struct sel4_ioeventfd {
 
 #define SEL4_IRQFD_FLAG_DEASSIGN	0x01
 
-struct sel4_irqfd {
+struct sel4_irqfd_config {
 	__s32	fd;
 	__u32	flags;
 };
@@ -42,8 +42,8 @@ struct sel4_irqfd {
 #define SEL4_DESTROY_VPCI_DEVICE	_IOW(SEL4_IOCTL, 0x23, struct sel4_vpci_device)
 #define SEL4_SET_IRQLINE		_IOW(SEL4_IOCTL, 0x24, struct sel4_irqline)
 
-#define SEL4_IOEVENTFD          	_IOW(SEL4_IOCTL, 0x25, struct sel4_ioeventfd)
-#define SEL4_IRQFD			_IOW(SEL4_IOCTL, 0x26, struct sel4_irqfd)
+#define SEL4_IOEVENTFD          	_IOW(SEL4_IOCTL, 0x25, struct sel4_ioeventfd_config)
+#define SEL4_IRQFD			_IOW(SEL4_IOCTL, 0x26, struct sel4_irqfd_config)
 
 /* Returns fd which is to be mmap'd with size SEL4_IOREQ_MMAP_SIZE. */
 #define SEL4_CREATE_IO_HANDLER	_IO(SEL4_IOCTL, 0x30)
