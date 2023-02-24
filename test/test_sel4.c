@@ -10,8 +10,10 @@
 #include <unistd.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <poll.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
+#include <sys/eventfd.h>
 #include <stdbool.h>
 
 #include "test_utils.h"
@@ -23,7 +25,8 @@
 #include "sel4_vmm_rpc.h"
 
 
-#define atomic_load(ptr) __atomic_load_n(ptr, __ATOMIC_SEQ_CST)
+#define atomic_load(_ptr) __atomic_load_n((_ptr), __ATOMIC_ACQUIRE)
+#define atomic_store(_ptr, _data)  __atomic_store_n((_ptr), (_data), __ATOMIC_RELEASE);
 
 #define VM_RAM_SIZE (2 << 20)
 
@@ -97,6 +100,11 @@ static int wait_io(int vm)
 static int notify_io_handled(int vm, __u64 slot)
 {
 	return ioctl(vm, SEL4_NOTIFY_IO_HANDLED, slot);
+}
+
+static int ioeventfd_config(int vm, struct sel4_ioeventfd_config *config)
+{
+	return ioctl(vm, SEL4_IOEVENTFD, config);
 }
 
 static int inject_ioreq(int vm, struct sel4_test_ioreq *inject)
@@ -357,6 +365,14 @@ static void wait_ioreq(int vm, struct sel4_ioreq *ioreq)
 	assert_eq(atomic_load(&ioreq->state), SEL4_IOREQ_STATE_PROCESSING);
 }
 
+static void complete_ioreq(struct sel4_iohandler_buffer *buf, unsigned slot)
+{
+	struct sel4_ioreq *ioreq;
+	assert_true(buf);
+	ioreq = &buf->request_slots[slot];
+	atomic_store(&ioreq->state, SEL4_IOREQ_STATE_FREE);
+}
+
 static int test_ioreq_pci_op_read(void)
 {
 	struct sel4_iohandler_buffer *buf;
@@ -562,6 +578,529 @@ static int test_mmap_ram(void)
 	return 0;
 }
 
+static int test_ioeventfd_assign_wildcard(void)
+{
+	struct sel4_ioeventfd_config config[] = {
+		{ .len = 1, },
+		{ .len = 2, },
+		{ .len = 4, },
+		{ .len = 8, },
+	};
+	int vm = create_vm();
+
+	for (unsigned i = 0; i < ARRAY_SIZE(config); i++) {
+		config[i].fd = eventfd(0, EFD_CLOEXEC);
+		assert_ne(config[i].fd, -1);
+
+		config[i].addr = (i * 8);
+
+		/* assign */
+		assert_eq(ioeventfd_config(vm, config + i), 0);
+	}
+
+	for (unsigned i = 0; i < ARRAY_SIZE(config); i++) {
+		/* deassign */
+		config[i].flags |= SEL4_IOEVENTFD_FLAG_DEASSIGN;
+		assert_eq(ioeventfd_config(vm, config + i), 0);
+
+		assert_ne(close(config[i].fd), -1);
+	}
+
+	assert_ne(close(vm), -1);
+
+	return 0;
+}
+
+static int test_ioeventfd_assign_datamatch(void)
+{
+	struct sel4_ioeventfd_config config[] = {
+		{ .len = 1, .data = 0, .flags = SEL4_IOEVENTFD_FLAG_DATAMATCH, },
+		{ .len = 2, .data = 1, .flags = SEL4_IOEVENTFD_FLAG_DATAMATCH, },
+		{ .len = 4, .data = 2, .flags = SEL4_IOEVENTFD_FLAG_DATAMATCH, },
+		{ .len = 8, .data = 3, .flags = SEL4_IOEVENTFD_FLAG_DATAMATCH, },
+	};
+	int vm = create_vm();
+
+	for (unsigned i = 0; i < ARRAY_SIZE(config); i++) {
+		config[i].fd = eventfd(0, EFD_CLOEXEC);
+		assert_ne(config[i].fd, -1);
+
+		config[i].addr = (i * 8);
+
+		/* assign */
+		assert_eq(ioeventfd_config(vm, config + i), 0);
+	}
+
+	for (unsigned i = 0; i < ARRAY_SIZE(config); i++) {
+		/* deassign */
+		config[i].flags |= SEL4_IOEVENTFD_FLAG_DEASSIGN;
+		assert_eq(ioeventfd_config(vm, config + i), 0);
+
+		assert_ne(close(config[i].fd), -1);
+	}
+
+	assert_ne(close(vm), -1);
+
+	return 0;
+}
+
+static int test_ioeventfd_assign_invalid_len(void)
+{
+	uint32_t invalid[] = { 0, 3, 5, 6, 7, 9 };
+	int vm = create_vm();
+
+	for (unsigned i = 0; i < ARRAY_SIZE(invalid); i++) {
+		struct sel4_ioeventfd_config config = {
+			.addr = 0xabbabaab,
+			.len = invalid[i],
+		};
+		config.fd = eventfd(0, EFD_CLOEXEC);
+		assert_ne(config.fd, -1);
+
+		assert_eq(ioeventfd_config(vm, &config), -1);
+		assert_eq(errno, EINVAL);
+
+		assert_ne(close(config.fd), -1);
+	}
+
+	assert_ne(close(vm), -1);
+	return 0;
+}
+
+static int test_ioeventfd_assign_overflow(void)
+{
+	struct sel4_ioeventfd_config config = {
+		.addr = -1,
+		.len = 1,
+	};
+	int vm = create_vm();
+
+	config.fd = eventfd(0, EFD_CLOEXEC);
+	assert_ne(config.fd, -1);
+
+	assert_eq(ioeventfd_config(vm, &config), -1);
+	assert_eq(errno, EINVAL);
+
+	assert_ne(close(config.fd), -1);
+	assert_ne(close(vm), -1);
+
+	return 0;
+}
+
+static int test_ioeventfd_assign_conflict_wildcard(void)
+{
+	struct sel4_ioeventfd_config config[] = {
+		{ .addr = 0x4, .len = 1, .flags = 0 },
+		{ .addr = 0x4, .len = 1, .flags = SEL4_IOEVENTFD_FLAG_DATAMATCH },
+	};
+	int vm = create_vm();
+
+	config[0].fd = eventfd(0, EFD_CLOEXEC);
+	assert_ne(config[0].fd, -1);
+
+	config[1].fd = config[0].fd;
+
+	/* Given wildcard registered with fd and addr, */
+	assert_eq(ioeventfd_config(vm, &config[0]), 0);
+
+	/* Then duplicate with the same fd and addr is not allowed */
+	for (unsigned i = 0; i < ARRAY_SIZE(config); i++) {
+		assert_eq(ioeventfd_config(vm, &config[i]), -1);
+		assert_eq(errno, EEXIST);
+	}
+
+	/* Teardown */
+	config[0].flags |= SEL4_IOEVENTFD_FLAG_DEASSIGN;
+	assert_eq(ioeventfd_config(vm, &config[0]), 0);
+	assert_ne(close(config[0].fd), -1);
+	assert_ne(close(vm), -1);
+
+	return 0;
+}
+
+static int test_ioeventfd_assign_conflict_datamatch(void)
+{
+	struct sel4_ioeventfd_config config[] = {
+		{ .addr = 0x4, .len = 1, .data = 1, .flags = SEL4_IOEVENTFD_FLAG_DATAMATCH },
+		{ .addr = 0x4, .len = 1, },
+	};
+	int vm = create_vm();
+
+	config[0].fd = eventfd(0, EFD_CLOEXEC);
+	assert_ne(config[0].fd, -1);
+
+	config[1].fd = config[0].fd;
+
+	/* Given datamatch registered with fd, addr and datamatch, */
+	assert_eq(ioeventfd_config(vm, &config[0]), 0);
+	/* Then duplicate with the same fd, addr, datamatch or wildcard is not allowed */
+	for (unsigned i = 0; i < ARRAY_SIZE(config); i++) {
+		assert_eq(ioeventfd_config(vm, &config[i]), -1);
+		assert_eq(errno, EEXIST);
+	}
+
+	/* Teardown */
+	config[0].flags |= SEL4_IOEVENTFD_FLAG_DEASSIGN;
+	assert_eq(ioeventfd_config(vm, &config[0]), 0);
+	assert_ne(close(config[0].fd), -1);
+	assert_ne(close(vm), -1);
+
+	return 0;
+}
+
+static int test_ioeventfd_allow_datamatch_different_data(void)
+{
+	struct sel4_ioeventfd_config config[] = {
+		{ .addr = 0x4, .len = 1, .data = 1, .flags = SEL4_IOEVENTFD_FLAG_DATAMATCH },
+		{ .addr = 0x4, .len = 1, .data = 2, .flags = SEL4_IOEVENTFD_FLAG_DATAMATCH },
+	};
+	int vm = create_vm();
+
+	config[0].fd = eventfd(0, EFD_CLOEXEC);
+	assert_ne(config[0].fd, -1);
+	config[1].fd = config[0].fd;
+	/* Different datamatch values are allowed. */
+	for (unsigned i = 0; i < ARRAY_SIZE(config); i++) {
+		assert_eq(ioeventfd_config(vm, &config[i]), 0);
+	}
+
+	/* Teardown */
+	for (unsigned i = 0; i < ARRAY_SIZE(config); i++) {
+		config[i].flags |= SEL4_IOEVENTFD_FLAG_DEASSIGN;
+		assert_eq(ioeventfd_config(vm, &config[i]), 0);
+	}
+	assert_ne(close(config[0].fd), -1);
+	assert_ne(close(vm), -1);
+
+	return 0;
+}
+
+static int test_ioeventfd_assign_invalid_fd(void)
+{
+	struct sel4_ioeventfd_config config = {
+		.fd = 10,
+		.addr = 0xabbabaab,
+		.len = 1,
+	};
+	int vm = create_vm();
+
+	assert_eq(ioeventfd_config(vm, &config), -1);
+	assert_eq(errno, EBADF);
+
+	assert_ne(close(vm), -1);
+
+	return 0;
+}
+
+static int test_ioeventfd_deassign_invalid_fd(void)
+{
+	struct sel4_ioeventfd_config config = {
+		.fd = 10,
+		.addr = 0xabbabaab,
+		.len = 1,
+		.flags = SEL4_IOEVENTFD_FLAG_DEASSIGN,
+	};
+	int vm = create_vm();
+
+	assert_eq(ioeventfd_config(vm, &config), -1);
+	assert_eq(errno, EBADF);
+
+	assert_ne(close(vm), -1);
+
+	return 0;
+}
+
+struct ioeventfd_test_ctx {
+	int vm;
+	int iohandler;
+	struct sel4_iohandler_buffer *buf;
+	struct sel4_ioeventfd_config config;
+};
+
+static int setup_ioeventfd_test(struct ioeventfd_test_ctx *ctx)
+{
+	assert_true(ctx);
+
+	ctx->vm = create_vm();
+	ctx->iohandler = create_iohandler(ctx->vm);
+	assert_gte(ctx->iohandler, 0);
+
+	ctx->buf = mmap(NULL, sizeof(*ctx->buf), PROT_READ | PROT_WRITE, MAP_SHARED, ctx->iohandler, 0);
+	assert_ne(ctx->buf, MAP_FAILED);
+
+	ctx->config.fd = eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK);
+	assert_ne(ctx->config.fd, -1);
+	assert_eq(ioeventfd_config(ctx->vm, &ctx->config), 0);
+
+	return 0;
+}
+
+static int teardown_ioeventfd_test(struct ioeventfd_test_ctx *ctx)
+{
+	assert_true(ctx);
+
+	ctx->config.flags |= SEL4_IOEVENTFD_FLAG_DEASSIGN;
+	assert_eq(ioeventfd_config(ctx->vm, &ctx->config), 0);
+	assert_eq(close(ctx->config.fd), 0);
+	assert_eq(munmap(ctx->buf, sizeof(*ctx->buf)), 0);
+	assert_eq(close(ctx->iohandler), 0);
+	assert_eq(close(ctx->vm), 0);
+
+	return 0;
+}
+
+static void construct_ioeventfd_inject(struct sel4_ioeventfd_config *config,
+				      struct sel4_test_ioreq *inject,
+				      uint64_t data,
+				      bool is_write)
+{
+	assert_true(config && inject);
+	uint32_t direction = (is_write) ? SEL4_IO_DIR_WRITE : SEL4_IO_DIR_READ;
+
+	inject->slot = 0;
+	inject->ioreq.state = SEL4_IOREQ_STATE_PENDING;
+
+	if (config->flags & SEL4_IOEVENTFD_FLAG_PCI) {
+		inject->ioreq.type = SEL4_IOREQ_TYPE_PCI;
+		inject->ioreq.req.pci.direction = direction;
+		inject->ioreq.req.pci.pcidev = 1;
+		inject->ioreq.req.pci.addr = config->addr;
+		inject->ioreq.req.pci.len = config->len;
+		inject->ioreq.req.pci.data = data;
+	} else {
+		inject->ioreq.type = SEL4_IOREQ_TYPE_MMIO;
+		inject->ioreq.req.mmio.direction = direction;
+		inject->ioreq.req.mmio.addr = config->addr;
+		inject->ioreq.req.mmio.len = config->len;
+		inject->ioreq.req.mmio.data = data;
+	}
+}
+
+static int do_test_ioeventfd_wildcard(struct sel4_ioeventfd_config *config)
+{
+	struct ioeventfd_test_ctx ctx;
+	struct sel4_test_ioreq inject;
+	uint64_t data;
+	struct pollfd pfd = { .events = POLLIN };
+
+	assert_true(config);
+
+	/* Setup */
+	ctx.config = *config;
+	setup_ioeventfd_test(&ctx);
+
+	/* Exercise */
+	/* should block first */
+	assert_eq(read(ctx.config.fd, &data, sizeof(data)), -1);
+	assert_eq(errno, EWOULDBLOCK);
+
+	/* inject event to address */
+	construct_ioeventfd_inject(&ctx.config, &inject, 0, true);
+	assert_true(iohandler_inject_ioreq(ctx.vm, ctx.buf, 0, &inject));
+
+	/* Poll for eventfd */
+	pfd.fd = ctx.config.fd;
+	assert_eq(poll(&pfd, 1, 5000), 1);
+	assert_eq(pfd.revents, POLLIN);
+
+	/* Read the event */
+	assert_eq(read(ctx.config.fd, &data, sizeof(data)), (int) sizeof(data));
+	assert_eq(data, 1LU);
+
+	/* Ensure kernel completed the ioreq */
+	assert_eq(consume_sent(ctx.vm), QEMU_OP_IO_HANDLED);
+
+	/* Ensure event is cleared */
+	assert_eq(read(ctx.config.fd, &data, sizeof(data)), -1);
+	assert_eq(errno, EWOULDBLOCK);
+
+	/* Teardown */
+	teardown_ioeventfd_test(&ctx);
+
+	return 0;
+}
+
+static int do_test_ioeventfd_datamatch(struct sel4_ioeventfd_config *config)
+{
+	struct ioeventfd_test_ctx ctx;
+	struct sel4_test_ioreq inject;
+	uint64_t data;
+	struct pollfd pfd = { .events = POLLIN };
+
+	assert_true(config);
+
+	/* Setup */
+	ctx.config = *config;
+	setup_ioeventfd_test(&ctx);
+
+	/* Exercise */
+	/* should block first */
+	assert_eq(read(ctx.config.fd, &data, sizeof(data)), -1);
+	assert_eq(errno, EWOULDBLOCK);
+
+	/* inject event without data match to address */
+	construct_ioeventfd_inject(&ctx.config, &inject, 0, true);
+	assert_true(iohandler_inject_ioreq(ctx.vm, ctx.buf, 0, &inject));
+
+	/* Poll for eventfd - should timeout */
+	pfd.fd = ctx.config.fd;
+	assert_eq(poll(&pfd, 1, 1000), 0);
+
+	/* Ensure kernel left ioreq untouched */
+	assert_eq(consume_sent(ctx.vm), -1);
+	complete_ioreq(ctx.buf, 0);
+
+	/* Inject event with datamatch and poll - we should get event */
+	construct_ioeventfd_inject(&ctx.config, &inject, ctx.config.data, true);
+	assert_true(iohandler_inject_ioreq(ctx.vm, ctx.buf, 0, &inject));
+
+	pfd.fd = ctx.config.fd;
+	assert_eq(poll(&pfd, 1, 1000), 1);
+	assert_eq(pfd.revents, POLLIN);
+
+	/* Read the event */
+	assert_eq(read(ctx.config.fd, &data, sizeof(data)), (int) sizeof(data));
+	assert_eq(data, 1LU);
+
+	/* Ensure kernel completed the ioreq */
+	assert_eq(consume_sent(ctx.vm), QEMU_OP_IO_HANDLED);
+
+	/* Ensure event is cleared */
+	assert_eq(read(ctx.config.fd, &data, sizeof(data)), -1);
+	assert_eq(errno, EWOULDBLOCK);
+
+	/* Teardown */
+	teardown_ioeventfd_test(&ctx);
+
+	return 0;
+}
+
+static int test_ioeventfd_wait_wildcard_pci(void)
+{
+	struct sel4_ioeventfd_config config = {
+		.addr = 0xabbabaab,
+		.len = 4,
+		.data = 0xbaadcafe,
+		.flags = SEL4_IOEVENTFD_FLAG_PCI,
+	};
+
+	assert_eq(do_test_ioeventfd_wildcard(&config), 0);
+
+	return 0;
+}
+
+static int test_ioeventfd_wait_datamatch_pci(void)
+{
+	struct sel4_ioeventfd_config config = {
+		.addr = 0xabbabaab,
+		.len = 4,
+		.data = 0xbaadcafe,
+		.flags = SEL4_IOEVENTFD_FLAG_PCI | SEL4_IOEVENTFD_FLAG_DATAMATCH,
+	};
+	assert_eq(do_test_ioeventfd_datamatch(&config), 0);
+
+	return 0;
+}
+
+static int test_ioeventfd_wait_wildcard_mmio(void)
+{
+	struct sel4_ioeventfd_config config = {
+		.addr = 0xabbabaab,
+		.len = 4,
+		.data = 0xbaadcafe,
+	};
+
+	assert_eq(do_test_ioeventfd_wildcard(&config), 0);
+
+	return 0;
+}
+
+static int test_ioeventfd_wait_datamatch_mmio(void)
+{
+	struct sel4_ioeventfd_config config = {
+		.addr = 0xabbabaab,
+		.len = 4,
+		.data = 0xbaadcafe,
+		.flags = SEL4_IOEVENTFD_FLAG_DATAMATCH,
+	};
+	assert_eq(do_test_ioeventfd_datamatch(&config), 0);
+
+	return 0;
+}
+
+static int do_test_ioeventfd_read(struct sel4_ioeventfd_config *config)
+{
+	struct ioeventfd_test_ctx ctx;
+	struct sel4_test_ioreq inject;
+	struct pollfd pfd = { .events = POLLIN };
+
+	assert_true(config);
+
+	/* Setup */
+	ctx.config = *config;
+	setup_ioeventfd_test(&ctx);
+
+	/* Exercise */
+	/* inject event with read operation */
+	construct_ioeventfd_inject(&ctx.config, &inject, ctx.config.data, false);
+	assert_true(iohandler_inject_ioreq(ctx.vm, ctx.buf, 0, &inject));
+
+	/* Poll for eventfd - should timeout */
+	pfd.fd = ctx.config.fd;
+	assert_eq(poll(&pfd, 1, 1000), 0);
+
+	/* Ensure kernel did not complete the ioreq */
+	assert_eq(consume_sent(ctx.vm), -1);
+
+	complete_ioreq(ctx.buf, 0);
+
+	/* Teardown */
+	teardown_ioeventfd_test(&ctx);
+
+	return 0;
+}
+
+static int test_ioeventfd_wildcard_ignore_read(void)
+{
+	struct sel4_ioeventfd_config mmio_config = {
+		.addr = 0xabbabaab,
+		.len = 4,
+		.flags = 0,
+	};
+	struct sel4_ioeventfd_config pci_config = {
+		.addr = 0xabbabaab,
+		.len = 4,
+		.flags = SEL4_IOEVENTFD_FLAG_PCI,
+	};
+
+
+	assert_eq(do_test_ioeventfd_read(&mmio_config), 0);
+	assert_eq(do_test_ioeventfd_read(&pci_config), 0);
+
+	return 0;
+}
+
+static int test_ioeventfd_datamatch_ignore_read(void)
+{
+	struct sel4_ioeventfd_config mmio_config = {
+		.addr = 0xabbabaab,
+		.len = 4,
+		.data = 0xbaadcafe,
+		.flags = SEL4_IOEVENTFD_FLAG_DATAMATCH,
+	};
+	struct sel4_ioeventfd_config pci_config = {
+		.addr = 0xabbabaab,
+		.len = 4,
+		.data = 0xbaadcafe,
+		.flags = SEL4_IOEVENTFD_FLAG_PCI | SEL4_IOEVENTFD_FLAG_DATAMATCH,
+	};
+
+	assert_eq(do_test_ioeventfd_read(&mmio_config), 0);
+	assert_eq(do_test_ioeventfd_read(&pci_config), 0);
+
+	return 0;
+}
+
 int main(void)
 {
 	const struct test_case tests[] = {
@@ -581,6 +1120,21 @@ int main(void)
 		declare_test(test_ioreq_pci_op_write),
 		declare_test(test_ioreq_pci_many),
 		declare_test(test_mmap_ram),
+		declare_test(test_ioeventfd_assign_wildcard),
+		declare_test(test_ioeventfd_assign_datamatch),
+		declare_test(test_ioeventfd_assign_invalid_len),
+		declare_test(test_ioeventfd_assign_overflow),
+		declare_test(test_ioeventfd_assign_conflict_wildcard),
+		declare_test(test_ioeventfd_assign_conflict_datamatch),
+		declare_test(test_ioeventfd_allow_datamatch_different_data),
+		declare_test(test_ioeventfd_assign_invalid_fd),
+		declare_test(test_ioeventfd_deassign_invalid_fd),
+		declare_test(test_ioeventfd_wait_wildcard_pci),
+		declare_test(test_ioeventfd_wait_datamatch_pci),
+		declare_test(test_ioeventfd_wait_wildcard_mmio),
+		declare_test(test_ioeventfd_wait_datamatch_mmio),
+		declare_test(test_ioeventfd_wildcard_ignore_read),
+		declare_test(test_ioeventfd_datamatch_ignore_read),
 	};
 	return run_tests(tests);
 }
