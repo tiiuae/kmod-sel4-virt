@@ -5,7 +5,7 @@ VAGRANTFILE_API_VERSION = '2'
 
 $DEFAULTS = {
   :cpus => 1,
-  :mem => 1024,
+  :mem => 2048,
 }
 
 # Required plugins. If you encounter errors relating to fog, try manually
@@ -26,7 +26,7 @@ end
 # Guest config
 ENV["LC_ALL"] = "en_US.UTF-8"
 ENV['VAGRANT_DEFAULT_PROVIDER'] = "libvirt"
-ENV["BOX_NAME"] = "fedora/36-cloud-base"
+ENV["BOX_NAME"] = "fedora/38-cloud-base"
 
 Vagrant.configure("2") do |config|
   config.env.enable
