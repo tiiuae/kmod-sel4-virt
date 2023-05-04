@@ -22,11 +22,12 @@ struct sel4_ioeventfd_config {
 	__u64	data;
 };
 
-#define SEL4_IRQFD_FLAG_DEASSIGN	0x01
+#define SEL4_IRQFD_FLAG_DEASSIGN	(1)
 
 struct sel4_irqfd_config {
 	__s32	fd;
 	__u32	flags;
+	__u32	virq;
 };
 
 #define SEL4_IOCTL 0xAF

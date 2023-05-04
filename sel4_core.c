@@ -125,6 +125,7 @@ static struct sel4_vm *sel4_vm_create(struct sel4_vm_params vm_params)
 	init_waitqueue_head(&vm->ioreq_wait);
 
 	INIT_LIST_HEAD(&vm->ioeventfds);
+	INIT_LIST_HEAD(&vm->irqfds);
 
 	write_lock_bh(&vm_list_lock);
 	list_add(&vm->vm_list, &vm_list);
@@ -492,6 +493,12 @@ int sel4_init(struct sel4_vm_server *server, struct module *module)
 		return -ENOMEM;
 	}
 
+	if (sel4_irqfd_init()) {
+		pr_err("sel4: irqfd init failed\n");
+		destroy_workqueue(sel4_ioreq_wq);
+		return -ENOMEM;
+	}
+
 	// Create misc char device
 	sel4_chardev_ops.owner = module;
 	sel4_vm_fops.owner = module;
@@ -509,6 +516,7 @@ int sel4_init(struct sel4_vm_server *server, struct module *module)
 void sel4_exit(void)
 {
 	misc_deregister(&sel4_dev);
+	sel4_irqfd_exit();
 	destroy_workqueue(sel4_ioreq_wq);
 	vm_server = NULL;
 }

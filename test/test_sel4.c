@@ -107,6 +107,11 @@ static int ioeventfd_config(int vm, struct sel4_ioeventfd_config *config)
 	return ioctl(vm, SEL4_IOEVENTFD, config);
 }
 
+static int irqfd_config(int vm, struct sel4_irqfd_config *config)
+{
+	return ioctl(vm, SEL4_IRQFD, config);
+}
+
 static int inject_ioreq(int vm, struct sel4_test_ioreq *inject)
 {
 	return ioctl(vm, SEL4_TEST_IOREQ_ADD, inject);
@@ -117,9 +122,17 @@ static int inject_upcall(int vm)
 	return ioctl(vm, SEL4_TEST_INJECT_UPCALL, 0);
 }
 
+static int consume_msg(int vm, rpcmsg_t *msg)
+{
+	return ioctl(vm, SEL4_TEST_CONSUME_MSG, msg);
+}
+
+#define msg_type(msg) QEMU_OP(msg.mr0)
+
 static int consume_sent(int vm)
 {
-	return ioctl(vm, SEL4_TEST_CONSUME_SENT, 0);
+	rpcmsg_t msg;
+	return (!consume_msg(vm, &msg)) ? (int) msg_type(msg) : -1;
 }
 
 static bool ioreqs_equal(struct sel4_ioreq *lhs, struct sel4_ioreq *rhs)
@@ -1084,6 +1097,111 @@ static int test_ioeventfd_datamatch_ignore_read(void)
 	return 0;
 }
 
+struct irqfd_test_ctx {
+	int vm;
+	int iohandler;
+	struct sel4_iohandler_buffer *buf;
+	struct sel4_irqfd_config config;
+};
+
+static int setup_irqfd_test(struct irqfd_test_ctx *ctx)
+{
+	assert_true(ctx);
+
+	ctx->vm = create_vm();
+	ctx->iohandler = create_iohandler(ctx->vm);
+	assert_gte(ctx->iohandler, 0);
+
+	ctx->buf = mmap(NULL, sizeof(*ctx->buf), PROT_READ | PROT_WRITE, MAP_SHARED, ctx->iohandler, 0);
+	assert_ne(ctx->buf, MAP_FAILED);
+
+	ctx->config.fd = eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK);
+	assert_ne(ctx->config.fd, -1);
+	assert_eq(irqfd_config(ctx->vm, &ctx->config), 0);
+
+	return 0;
+}
+
+static int teardown_irqfd_test(struct irqfd_test_ctx *ctx)
+{
+	assert_true(ctx);
+	ctx->config.flags |= SEL4_IRQFD_FLAG_DEASSIGN;
+
+	assert_eq(irqfd_config(ctx->vm, &ctx->config), 0);
+	assert_eq(close(ctx->config.fd), 0);
+	assert_eq(munmap(ctx->buf, sizeof(*ctx->buf)), 0);
+	assert_eq(close(ctx->iohandler), 0);
+	assert_eq(close(ctx->vm), 0);
+
+	return 0;
+}
+
+static int test_irqfd_assign(void)
+{
+	struct irqfd_test_ctx ctx = {
+		.config = {
+			.virq = 1,
+		}
+	};
+	uint64_t val = 1;
+	rpcmsg_t msg;
+
+	setup_irqfd_test(&ctx);
+
+	// We expect to receive SET_IRQ followed by CLR_IRQ
+	memset(&msg, 0, sizeof(msg));
+	assert_eq(write(ctx.config.fd, &val, sizeof(val)), 8);
+	assert_eq(consume_msg(ctx.vm, &msg), 0);
+	assert_eq(msg_type(msg), (unsigned int) QEMU_OP_SET_IRQ);
+	assert_eq(msg.mr1, ctx.config.virq);
+
+	memset(&msg, 0, sizeof(msg));
+	assert_eq(consume_msg(ctx.vm, &msg), 0);
+	assert_eq(msg_type(msg), (unsigned int) QEMU_OP_CLR_IRQ);
+	assert_eq(msg.mr1, ctx.config.virq);
+
+	/* Ensure messages consumed */
+	assert_eq(consume_sent(ctx.vm), -1);
+
+	teardown_irqfd_test(&ctx);
+	return 0;
+}
+
+static int test_irqfd_assign_invalid_fd(void)
+{
+
+	struct sel4_irqfd_config config = {
+		.fd = 10,
+		.virq = 1,
+	};
+	int vm = create_vm();
+
+	assert_eq(irqfd_config(vm, &config), -1);
+	assert_eq(errno, EBADF);
+
+	assert_ne(close(vm), -1);
+
+	return 0;
+}
+
+static int test_irqfd_deassign_invalid_fd(void)
+{
+
+	struct sel4_irqfd_config config = {
+		.fd = 10,
+		.flags = SEL4_IRQFD_FLAG_DEASSIGN,
+		.virq = 1,
+	};
+	int vm = create_vm();
+
+	assert_eq(irqfd_config(vm, &config), -1);
+	assert_eq(errno, EBADF);
+
+	assert_ne(close(vm), -1);
+
+	return 0;
+}
+
 int main(void)
 {
 	const struct test_case tests[] = {
@@ -1118,6 +1236,9 @@ int main(void)
 		declare_test(test_ioeventfd_wait_datamatch_mmio),
 		declare_test(test_ioeventfd_wildcard_ignore_read),
 		declare_test(test_ioeventfd_datamatch_ignore_read),
+		declare_test(test_irqfd_assign),
+		declare_test(test_irqfd_assign_invalid_fd),
+		declare_test(test_irqfd_deassign_invalid_fd),
 	};
 	return run_tests(tests);
 }
