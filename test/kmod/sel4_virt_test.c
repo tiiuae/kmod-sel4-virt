@@ -55,7 +55,7 @@ static int sel4_test_inject_upcall(struct sel4_vm *vm)
 	return 0;
 }
 
-static int sel4_test_consume_sent(struct sel4_vm *vm)
+static int sel4_test_consume_sent(struct sel4_vm *vm, rpcmsg_t __user *to_user)
 {
 	struct sel4_vmm *vmm;
 	struct sel4_rpc *rpc;
@@ -77,7 +77,7 @@ static int sel4_test_consume_sent(struct sel4_vm *vm)
 		rc = -ENOMSG;
 		goto out_unlock;
 	}
-	rc = QEMU_OP(msg->mr0);
+	rc = copy_to_user(to_user, msg, sizeof(*to_user)) ? -EFAULT : 0;
 	rpcmsg_queue_advance_head(rpc->tx_queue);
 
 out_unlock:
@@ -270,8 +270,8 @@ long sel4_module_ioctl(struct file *filp, unsigned int ioctl,
 		rc = sel4_test_inject_upcall(vm);
 		break;
 	}
-	case SEL4_TEST_CONSUME_SENT: {
-		rc = sel4_test_consume_sent(vm);
+	case SEL4_TEST_CONSUME_MSG: {
+		rc = sel4_test_consume_sent(vm, (rpcmsg_t __user *) arg);
 		break;
 	}
 	default:

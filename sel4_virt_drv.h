@@ -83,6 +83,7 @@ struct sel4_vm {
 	DECLARE_BITMAP(ioreq_map, SEL4_MAX_IOREQS);
 
 	struct list_head	ioeventfds;
+	struct list_head	irqfds;
 
 	struct sel4_vmm		*vmm;
 };
@@ -208,24 +209,6 @@ static inline int sel4_vm_notify_io_handled(struct sel4_vm *vm, u32 slot)
 	return rc;
 }
 
-static inline int sel4_vm_irqfd_config(struct sel4_vm *vm,
-				       struct sel4_irqfd_config *irqfd)
-{
-	unsigned long irqflags;
-
-	if (WARN_ON(!vm || !irqfd))
-		return -EINVAL;
-
-	irqflags = sel4_vm_lock(vm);
-	if (WARN_ON(!vm->vmm)) {
-		sel4_vm_unlock(vm, irqflags);
-		return -ENODEV;
-	}
-	sel4_vm_unlock(vm, irqflags);
-
-	return -ENOSYS;
-}
-
 static inline irqreturn_t sel4_vm_call_irqhandler(struct sel4_vm *vm, int irq)
 {
 	irqreturn_t rc;
@@ -249,6 +232,12 @@ unlock:
 }
 
 void sel4_vm_upcall_notify(struct sel4_vm *vm);
+
+int sel4_irqfd_init(void);
+void sel4_irqfd_exit(void);
+
+int sel4_vm_irqfd_config(struct sel4_vm *vm,
+			 struct sel4_irqfd_config *config);
 
 int sel4_vm_ioeventfd_config(struct sel4_vm *vm,
 			     struct sel4_ioeventfd_config *config);
