@@ -122,29 +122,13 @@ static int consume_sent(int vm)
 	return ioctl(vm, SEL4_TEST_CONSUME_SENT, 0);
 }
 
-static bool mmio_ioreqs_equal(struct sel4_ioreq_mmio *lhs, struct sel4_ioreq_mmio *rhs)
-{
-	return ((lhs->direction == rhs->direction) &&
-		(lhs->vcpu	== rhs->vcpu) &&
-		(lhs->addr	== rhs->addr) &&
-		(lhs->len	== rhs->len) &&
-		(lhs->data	== rhs->data));
-}
-
-static bool pci_ioreqs_equal(struct sel4_ioreq_pci *lhs, struct sel4_ioreq_pci *rhs)
-{
-	return ((lhs->direction == rhs->direction) &&
-		(lhs->pcidev	== rhs->pcidev) &&
-		(lhs->addr	== rhs->addr) &&
-		(lhs->len	== rhs->len) &&
-		(lhs->data	== rhs->data));
-}
 static bool ioreqs_equal(struct sel4_ioreq *lhs, struct sel4_ioreq *rhs)
 {
-	return ((lhs->type == rhs->type) &&
-		(lhs->type == SEL4_IOREQ_TYPE_MMIO) ?
-		mmio_ioreqs_equal(&lhs->req.mmio, &rhs->req.mmio) :
-		pci_ioreqs_equal(&lhs->req.pci, &rhs->req.pci));
+	return ((lhs->direction  == rhs->direction) &&
+		(lhs->addr_space == rhs->addr_space) &&
+		(lhs->addr	 == rhs->addr) &&
+		(lhs->len	 == rhs->len) &&
+		(lhs->data	 == rhs->data));
 }
 
 static int test_vm_create(void)
@@ -381,12 +365,11 @@ static int test_ioreq_pci_op_read(void)
 		.slot = 0,
 		.ioreq = {
 			.state = SEL4_IOREQ_STATE_PENDING,
-			.type = SEL4_IOREQ_TYPE_PCI,
-			.req.pci.direction = SEL4_IO_DIR_READ,
-			.req.pci.pcidev = 0x1,
-			.req.pci.addr = 0x123,
-			.req.pci.len = 1,
-			.req.pci.data = 0x0,
+			.direction = SEL4_IO_DIR_READ,
+			.addr_space = AS_PCIDEV(0x1),
+			.addr = 0x123,
+			.len = 1,
+			.data = 0x0,
 		},
 	};
 	unsigned slot = 0;
@@ -437,12 +420,11 @@ static int test_ioreq_pci_op_write(void)
 		.slot = 0,
 		.ioreq = {
 			.state = SEL4_IOREQ_STATE_PENDING,
-			.type = SEL4_IOREQ_TYPE_PCI,
-			.req.pci.direction = SEL4_IO_DIR_WRITE,
-			.req.pci.pcidev = 0x1,
-			.req.pci.addr = 0x123,
-			.req.pci.len = 1,
-			.req.pci.data = 0xAB
+			.direction = SEL4_IO_DIR_WRITE,
+			.addr_space = AS_PCIDEV(0x1),
+			.addr = 0x123,
+			.len = 1,
+			.data = 0xAB
 		},
 	};
 	unsigned slot = 0;
@@ -490,23 +472,21 @@ static int test_ioreq_pci_many(void)
 		.slot = 0,
 		.ioreq = {
 			.state = SEL4_IOREQ_STATE_PENDING,
-			.type = SEL4_IOREQ_TYPE_PCI,
-			.req.pci.direction = SEL4_IO_DIR_WRITE,
-			.req.pci.pcidev = 0x1,
-			.req.pci.addr = 0x123,
-			.req.pci.len = 1,
-			.req.pci.data = 0xAB
+			.direction = SEL4_IO_DIR_WRITE,
+			.addr_space = AS_PCIDEV(0x1),
+			.addr = 0x123,
+			.len = 1,
+			.data = 0xAB
 		},
 	}, {
 		.slot = 1,
 		.ioreq = {
 			.state = SEL4_IOREQ_STATE_PENDING,
-			.type = SEL4_IOREQ_TYPE_PCI,
-			.req.pci.direction = SEL4_IO_DIR_READ,
-			.req.pci.pcidev = 0x1,
-			.req.pci.addr = 0x123,
-			.req.pci.len = 1,
-			.req.pci.data = 0xAB
+			.direction = SEL4_IO_DIR_READ,
+			.addr_space = AS_PCIDEV(0x1),
+			.addr = 0x123,
+			.len = 1,
+			.data = 0xAB
 		},
 	}};
 	unsigned slot;
@@ -581,10 +561,10 @@ static int test_mmap_ram(void)
 static int test_ioeventfd_assign_wildcard(void)
 {
 	struct sel4_ioeventfd_config config[] = {
-		{ .len = 1, },
-		{ .len = 2, },
-		{ .len = 4, },
-		{ .len = 8, },
+		{ .addr_space = AS_GLOBAL, .len = 1, },
+		{ .addr_space = AS_GLOBAL, .len = 2, },
+		{ .addr_space = AS_GLOBAL, .len = 4, },
+		{ .addr_space = AS_GLOBAL, .len = 8, },
 	};
 	int vm = create_vm();
 
@@ -614,10 +594,10 @@ static int test_ioeventfd_assign_wildcard(void)
 static int test_ioeventfd_assign_datamatch(void)
 {
 	struct sel4_ioeventfd_config config[] = {
-		{ .len = 1, .data = 0, .flags = SEL4_IOEVENTFD_FLAG_DATAMATCH, },
-		{ .len = 2, .data = 1, .flags = SEL4_IOEVENTFD_FLAG_DATAMATCH, },
-		{ .len = 4, .data = 2, .flags = SEL4_IOEVENTFD_FLAG_DATAMATCH, },
-		{ .len = 8, .data = 3, .flags = SEL4_IOEVENTFD_FLAG_DATAMATCH, },
+		{ .addr_space = AS_GLOBAL, .len = 1, .data = 0, .flags = SEL4_IOEVENTFD_FLAG_DATAMATCH, },
+		{ .addr_space = AS_GLOBAL, .len = 2, .data = 1, .flags = SEL4_IOEVENTFD_FLAG_DATAMATCH, },
+		{ .addr_space = AS_GLOBAL, .len = 4, .data = 2, .flags = SEL4_IOEVENTFD_FLAG_DATAMATCH, },
+		{ .addr_space = AS_GLOBAL, .len = 8, .data = 3, .flags = SEL4_IOEVENTFD_FLAG_DATAMATCH, },
 	};
 	int vm = create_vm();
 
@@ -651,6 +631,7 @@ static int test_ioeventfd_assign_invalid_len(void)
 
 	for (unsigned i = 0; i < ARRAY_SIZE(invalid); i++) {
 		struct sel4_ioeventfd_config config = {
+			.addr_space = AS_GLOBAL,
 			.addr = 0xabbabaab,
 			.len = invalid[i],
 		};
@@ -670,6 +651,7 @@ static int test_ioeventfd_assign_invalid_len(void)
 static int test_ioeventfd_assign_overflow(void)
 {
 	struct sel4_ioeventfd_config config = {
+		.addr_space = AS_GLOBAL,
 		.addr = -1,
 		.len = 1,
 	};
@@ -690,8 +672,8 @@ static int test_ioeventfd_assign_overflow(void)
 static int test_ioeventfd_assign_conflict_wildcard(void)
 {
 	struct sel4_ioeventfd_config config[] = {
-		{ .addr = 0x4, .len = 1, .flags = 0 },
-		{ .addr = 0x4, .len = 1, .flags = SEL4_IOEVENTFD_FLAG_DATAMATCH },
+		{ .addr_space = AS_GLOBAL, .addr = 0x4, .len = 1, .flags = 0 },
+		{ .addr_space = AS_GLOBAL, .addr = 0x4, .len = 1, .flags = SEL4_IOEVENTFD_FLAG_DATAMATCH },
 	};
 	int vm = create_vm();
 
@@ -721,8 +703,8 @@ static int test_ioeventfd_assign_conflict_wildcard(void)
 static int test_ioeventfd_assign_conflict_datamatch(void)
 {
 	struct sel4_ioeventfd_config config[] = {
-		{ .addr = 0x4, .len = 1, .data = 1, .flags = SEL4_IOEVENTFD_FLAG_DATAMATCH },
-		{ .addr = 0x4, .len = 1, },
+		{ .addr_space = AS_GLOBAL, .addr = 0x4, .len = 1, .data = 1, .flags = SEL4_IOEVENTFD_FLAG_DATAMATCH },
+		{ .addr_space = AS_GLOBAL, .addr = 0x4, .len = 1, },
 	};
 	int vm = create_vm();
 
@@ -751,8 +733,8 @@ static int test_ioeventfd_assign_conflict_datamatch(void)
 static int test_ioeventfd_allow_datamatch_different_data(void)
 {
 	struct sel4_ioeventfd_config config[] = {
-		{ .addr = 0x4, .len = 1, .data = 1, .flags = SEL4_IOEVENTFD_FLAG_DATAMATCH },
-		{ .addr = 0x4, .len = 1, .data = 2, .flags = SEL4_IOEVENTFD_FLAG_DATAMATCH },
+		{ .addr_space = AS_GLOBAL, .addr = 0x4, .len = 1, .data = 1, .flags = SEL4_IOEVENTFD_FLAG_DATAMATCH },
+		{ .addr_space = AS_GLOBAL, .addr = 0x4, .len = 1, .data = 2, .flags = SEL4_IOEVENTFD_FLAG_DATAMATCH },
 	};
 	int vm = create_vm();
 
@@ -779,6 +761,7 @@ static int test_ioeventfd_assign_invalid_fd(void)
 {
 	struct sel4_ioeventfd_config config = {
 		.fd = 10,
+		.addr_space = AS_GLOBAL,
 		.addr = 0xabbabaab,
 		.len = 1,
 	};
@@ -796,6 +779,7 @@ static int test_ioeventfd_deassign_invalid_fd(void)
 {
 	struct sel4_ioeventfd_config config = {
 		.fd = 10,
+		.addr_space = AS_GLOBAL,
 		.addr = 0xabbabaab,
 		.len = 1,
 		.flags = SEL4_IOEVENTFD_FLAG_DEASSIGN,
@@ -859,21 +843,12 @@ static void construct_ioeventfd_inject(struct sel4_ioeventfd_config *config,
 
 	inject->slot = 0;
 	inject->ioreq.state = SEL4_IOREQ_STATE_PENDING;
+	inject->ioreq.direction = direction;
 
-	if (config->flags & SEL4_IOEVENTFD_FLAG_PCI) {
-		inject->ioreq.type = SEL4_IOREQ_TYPE_PCI;
-		inject->ioreq.req.pci.direction = direction;
-		inject->ioreq.req.pci.pcidev = 1;
-		inject->ioreq.req.pci.addr = config->addr;
-		inject->ioreq.req.pci.len = config->len;
-		inject->ioreq.req.pci.data = data;
-	} else {
-		inject->ioreq.type = SEL4_IOREQ_TYPE_MMIO;
-		inject->ioreq.req.mmio.direction = direction;
-		inject->ioreq.req.mmio.addr = config->addr;
-		inject->ioreq.req.mmio.len = config->len;
-		inject->ioreq.req.mmio.data = data;
-	}
+	inject->ioreq.addr = config->addr;
+	inject->ioreq.addr_space = config->addr_space;
+	inject->ioreq.len = config->len;
+	inject->ioreq.data = data;
 }
 
 static int do_test_ioeventfd_wildcard(struct sel4_ioeventfd_config *config)
@@ -978,10 +953,11 @@ static int do_test_ioeventfd_datamatch(struct sel4_ioeventfd_config *config)
 static int test_ioeventfd_wait_wildcard_pci(void)
 {
 	struct sel4_ioeventfd_config config = {
+		.addr_space = AS_PCIDEV(1),
 		.addr = 0xabbabaab,
 		.len = 4,
 		.data = 0xbaadcafe,
-		.flags = SEL4_IOEVENTFD_FLAG_PCI,
+		.flags = 0,
 	};
 
 	assert_eq(do_test_ioeventfd_wildcard(&config), 0);
@@ -992,10 +968,11 @@ static int test_ioeventfd_wait_wildcard_pci(void)
 static int test_ioeventfd_wait_datamatch_pci(void)
 {
 	struct sel4_ioeventfd_config config = {
+		.addr_space = AS_PCIDEV(1),
 		.addr = 0xabbabaab,
 		.len = 4,
 		.data = 0xbaadcafe,
-		.flags = SEL4_IOEVENTFD_FLAG_PCI | SEL4_IOEVENTFD_FLAG_DATAMATCH,
+		.flags = SEL4_IOEVENTFD_FLAG_DATAMATCH,
 	};
 	assert_eq(do_test_ioeventfd_datamatch(&config), 0);
 
@@ -1005,6 +982,7 @@ static int test_ioeventfd_wait_datamatch_pci(void)
 static int test_ioeventfd_wait_wildcard_mmio(void)
 {
 	struct sel4_ioeventfd_config config = {
+		.addr_space = AS_GLOBAL,
 		.addr = 0xabbabaab,
 		.len = 4,
 		.data = 0xbaadcafe,
@@ -1018,6 +996,7 @@ static int test_ioeventfd_wait_wildcard_mmio(void)
 static int test_ioeventfd_wait_datamatch_mmio(void)
 {
 	struct sel4_ioeventfd_config config = {
+		.addr_space = AS_GLOBAL,
 		.addr = 0xabbabaab,
 		.len = 4,
 		.data = 0xbaadcafe,
@@ -1063,14 +1042,16 @@ static int do_test_ioeventfd_read(struct sel4_ioeventfd_config *config)
 static int test_ioeventfd_wildcard_ignore_read(void)
 {
 	struct sel4_ioeventfd_config mmio_config = {
+		.addr_space = AS_GLOBAL,
 		.addr = 0xabbabaab,
 		.len = 4,
 		.flags = 0,
 	};
 	struct sel4_ioeventfd_config pci_config = {
+		.addr_space = AS_PCIDEV(1),
 		.addr = 0xabbabaab,
 		.len = 4,
-		.flags = SEL4_IOEVENTFD_FLAG_PCI,
+		.flags = 0,
 	};
 
 
@@ -1083,16 +1064,18 @@ static int test_ioeventfd_wildcard_ignore_read(void)
 static int test_ioeventfd_datamatch_ignore_read(void)
 {
 	struct sel4_ioeventfd_config mmio_config = {
+		.addr_space = AS_GLOBAL,
 		.addr = 0xabbabaab,
 		.len = 4,
 		.data = 0xbaadcafe,
 		.flags = SEL4_IOEVENTFD_FLAG_DATAMATCH,
 	};
 	struct sel4_ioeventfd_config pci_config = {
+		.addr_space = AS_PCIDEV(1),
 		.addr = 0xabbabaab,
 		.len = 4,
 		.data = 0xbaadcafe,
-		.flags = SEL4_IOEVENTFD_FLAG_PCI | SEL4_IOEVENTFD_FLAG_DATAMATCH,
+		.flags = SEL4_IOEVENTFD_FLAG_DATAMATCH,
 	};
 
 	assert_eq(do_test_ioeventfd_read(&mmio_config), 0);

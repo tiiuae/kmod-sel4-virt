@@ -16,7 +16,7 @@ struct sel4_ioeventfd {
 	u64	addr;
 	u64	data;
 	u32	len;
-	u32	type;
+	u32	addr_space;
 	bool	wildcard;
 };
 
@@ -47,7 +47,7 @@ static bool sel4_ioeventfd_conflict(struct sel4_vm *vm,
 	list_for_each_entry(entry, &vm->ioeventfds, list) {
 		if (entry->eventfd == ioeventfd->eventfd &&
 		    entry->addr == ioeventfd->addr &&
-		    entry->type == ioeventfd->type &&
+		    entry->addr_space == ioeventfd->addr_space &&
 		    (entry->wildcard || ioeventfd->wildcard ||
 			entry->data == ioeventfd->data)) {
 			return true;
@@ -58,7 +58,7 @@ static bool sel4_ioeventfd_conflict(struct sel4_vm *vm,
 }
 
 static struct sel4_ioeventfd *sel4_ioeventfd_match(struct sel4_vm *vm,
-						   u32 type, u64 addr,
+						   u32 addr_space, u64 addr,
 						   u64 len, u64 data)
 {
 	struct sel4_ioeventfd *entry = NULL;
@@ -69,7 +69,7 @@ static struct sel4_ioeventfd *sel4_ioeventfd_match(struct sel4_vm *vm,
 
 	list_for_each_entry(entry, &vm->ioeventfds, list) {
 		if (entry->addr == addr &&
-		    entry->type == type &&
+		    entry->addr_space == addr_space &&
 		    entry->len >= len &&
 		    (entry->wildcard || entry->data == data)) {
 			return entry;
@@ -103,10 +103,9 @@ static int sel4_ioeventfd_assign(struct sel4_vm *vm,
 
 	INIT_LIST_HEAD(&new->list);
 	new->addr = config->addr;
+	new->addr_space = config->addr_space;
 	new->len = config->len;
 	new->eventfd = eventfd;
-	new->type = (config->flags & SEL4_IOEVENTFD_FLAG_PCI) ?
-		SEL4_IOREQ_TYPE_PCI : SEL4_IOREQ_TYPE_MMIO;
 
 	if (config->flags & SEL4_IOEVENTFD_FLAG_DATAMATCH)
 		new->data = config->data;
@@ -166,8 +165,6 @@ int sel4_vm_ioeventfd_process(struct sel4_vm *vm, int slot)
 {
 	struct sel4_ioreq *ioreq = vm->ioreq_buffer->request_slots + slot;
 	struct sel4_ioeventfd *ioeventfd;
-	u64 addr, len, data;
-	u32 direction;
 	int rc = SEL4_IOEVENTFD_NONE;
 
 	lockdep_assert_held(&vm->lock);
@@ -176,13 +173,13 @@ int sel4_vm_ioeventfd_process(struct sel4_vm *vm, int slot)
 		return -EINVAL;
 	}
 
-	sel4_ioreq_unravel(ioreq, &direction, &addr, &len, &data);
-	if (direction == SEL4_IO_DIR_READ) {
+	if (ioreq->direction == SEL4_IO_DIR_READ) {
 		/* let userspace process reads */
 		return SEL4_IOEVENTFD_NONE;
 	}
 
-	ioeventfd = sel4_ioeventfd_match(vm, ioreq->type, addr, len, data);
+	ioeventfd = sel4_ioeventfd_match(vm, ioreq->addr_space, ioreq->addr,
+					 ioreq->len, ioreq->data);
 	if (ioeventfd) {
 		/* signal the eventfd and mark request as complete */
 		eventfd_signal(ioeventfd->eventfd, 1);
