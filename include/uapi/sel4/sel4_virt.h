@@ -10,7 +10,6 @@
 
 #include "sel4_virt_types.h"
 
-#define SEL4_IOEVENTFD_FLAG_PCI		(1 << 0)
 #define SEL4_IOEVENTFD_FLAG_DATAMATCH	(1 << 1)
 #define SEL4_IOEVENTFD_FLAG_DEASSIGN	(1 << 2)
 
@@ -19,7 +18,7 @@ struct sel4_ioeventfd_config {
 	__u32	flags;
 	__u64	addr;
 	__u32	len;
-	__u32	reserved;
+	__u32	addr_space;
 	__u64	data;
 };
 

@@ -22,35 +22,17 @@ struct sel4_vm_params {
 #define SEL4_IOREQ_STATE_PROCESSING	2U
 #define SEL4_IOREQ_STATE_COMPLETE	3U
 
-#define SEL4_IOREQ_TYPE_MMIO		0U
-#define SEL4_IOREQ_TYPE_PCI		1U
+#define AS_GLOBAL           ~0
+#define AS_PCIDEV(__pcidev) (__pcidev)
 
-struct sel4_ioreq_mmio {
-	__u32	direction;
-	__u32   vcpu;
+struct sel4_ioreq {
+	__u16   state;
+	__u16	direction;
+	__u32   addr_space;
 	__u64	addr;
 	__u64	len;
 	__u64	data;
-};
-
-struct sel4_ioreq_pci {
-	__u32	direction;
-	__u32	pcidev;
-	__u32	addr;
-	__u32	len;
-	__u32	data;
-	__u32   reserved0;
-};
-
-struct sel4_ioreq {
-	__u32   state;
-	__u32   type;
-	union {
-		struct sel4_ioreq_mmio	mmio;
-		struct sel4_ioreq_pci	pci;
-		__u64			data[8];
-	} req;
-} __attribute__((aligned(128)));
+} __attribute__((packed, aligned(128)));
 
 
 #define SEL4_IOREQ_SLOT_VALID(_slot) \
