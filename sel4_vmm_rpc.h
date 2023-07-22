@@ -20,40 +20,30 @@
 #define __maybe_unused __attribute__ ((unused))
 #endif
 
-#if defined(__KERNEL__)
+#if !defined(SEL4_VMM)
 typedef unsigned long seL4_Word;
-
-#define PRIx64 "lux"
-
-#define rpc_assert(_cond) BUG_ON(!(_cond))
-#define debug_printf pr_debug
-#define ORIGIN ""
-
-#elif defined(TEST)
-typedef unsigned long seL4_Word;
-
-#define debug_printf printf
-#define rpc_assert assert
-#define ORIGIN ""
-
-#else
-
-#define debug_printf printf
-#define rpc_assert assert
-
-#define ORIGIN "VMM "
-
-/* to QEMU */
-#define tx_queue (((rpcmsg_queue_t *) ctrl) + 0)
-/* from QEMU */
-#define rx_queue (((rpcmsg_queue_t *) ctrl) + 1)
-#define logbuffer ((logbuffer_t *)(rx_queue + 1))
 #endif
 
-typedef struct {
-    size_t sz;
-    char data[1024];
-} logbuffer_t;
+#if defined(__KERNEL__)
+#define rpc_assert(_cond) BUG_ON(!(_cond))
+#else
+#define rpc_assert assert
+#endif
+
+#ifdef SEL4_VMM
+#define IOBUF_PAGE_RECV 2
+#define IOBUF_PAGE_SEND 1
+#else
+#define IOBUF_PAGE_RECV 1
+#define IOBUF_PAGE_SEND 2
+#endif
+#define IOBUF_PAGE_MMIO 0
+
+#define iobuf_page(_iobuf, _page) (((uintptr_t)(_iobuf)) + (4096 * (_page)))
+
+#define tx_queue(_iobuf) ((rpcmsg_queue_t *)iobuf_page((_iobuf), IOBUF_PAGE_SEND))
+#define rx_queue(_iobuf) ((rpcmsg_queue_t *)iobuf_page((_iobuf), IOBUF_PAGE_RECV))
+#define mmio_reqs(_iobuf) ((struct sel4_iohandler_buffer *)iobuf_page((_iobuf), IOBUF_PAGE_MMIO))
 
 /* from VMM to QEMU */
 #define QEMU_OP_IO_HANDLED  0
@@ -85,29 +75,11 @@ typedef struct {
     rpcmsg_t data[RPCMSG_BUFFER_SIZE];
 } rpcmsg_queue_t;
 
-#define QUEUE_PREV(_i) ((_i) ? ((_i) - 1) : (RPCMSG_BUFFER_SIZE - 1))
 #define QUEUE_NEXT(_i) (((_i) + 1) & (RPCMSG_BUFFER_SIZE - 1))
 
 __maybe_unused static void rpcmsg_queue_init(rpcmsg_queue_t *q)
 {
     memset(q, 0, sizeof(*q));
-}
-
-__maybe_unused static void rpcmsg_queue_dump(const char *name, rpcmsg_queue_t *q, unsigned int idx)
-{
-    unsigned int start_idx = idx;
-    char tmp[128];
-
-    sprintf(tmp, ORIGIN "name = %s head = %02d tail = %02d", name, q->head, q->tail);
-    debug_printf("%s", tmp);
-
-    do {
-        rpcmsg_t *msg = &q->data[idx];
-        sprintf(tmp, ORIGIN "%02d: %08"PRIx64" %08"PRIx64" %08"PRIx64" %08"PRIx64,
-                idx, msg->mr0, msg->mr1, msg->mr2, msg->mr3);
-        debug_printf("%s", tmp);
-        idx = QUEUE_PREV(idx);
-    } while (idx != start_idx);
 }
 
 static inline bool rpcmsg_queue_full(rpcmsg_queue_t *q)
