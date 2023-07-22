@@ -17,10 +17,9 @@
 #define SEL4_DEVICE_NAME_MAX_LEN 50
 
 /* We have two types of dataports, control and ram */
-#define SEL4_DATAPORT_CONTROL	0
-#define SEL4_DATAPORT_IOBUF	1
-#define SEL4_DATAPORT_RAM	2
-#define SEL4_DATAPORT_LAST	3
+#define SEL4_DATAPORT_IOBUF	0
+#define SEL4_DATAPORT_RAM	1
+#define SEL4_DATAPORT_LAST	2
 
 /* Dataport states: when the dataport is associated with vmm, the state is
  * active. When dataport still in use is going to be removed, the state is
@@ -34,13 +33,9 @@
 #define SEL4_DATAPORT_REMOVED	3
 
 char *dataport_match[SEL4_DATAPORT_LAST] = {
-	"guest-control",
 	"guest-iobuf",
 	"guest-ram",
 };
-
-#define rx_queue(_rpcbuf) (((rpcmsg_queue_t *) _rpcbuf) + 0)
-#define tx_queue(_rpcbuf) (((rpcmsg_queue_t *) _rpcbuf) + 1)
 
 DEFINE_MUTEX(sel4_dataports_lock);
 LIST_HEAD(sel4_dataports);
@@ -189,15 +184,15 @@ static int sel4_pci_vmm_create(struct sel4_dataport * dataports[])
 		return PTR_ERR(vmm);
 	}
 
-	vmm->irq = dataports[SEL4_DATAPORT_CONTROL]->dev->irq;
+	vmm->irq = dataports[SEL4_DATAPORT_IOBUF]->dev->irq;
 	vmm->irq_flags = IRQF_SHARED;
 
 	vmm->iobuf = dataports[SEL4_DATAPORT_IOBUF]->mem[1];
 
-	rpc = sel4_rpc_create(tx_queue(dataports[SEL4_DATAPORT_CONTROL]->mem[1].service_vm_va),
-			      rx_queue(dataports[SEL4_DATAPORT_CONTROL]->mem[1].service_vm_va),
+	rpc = sel4_rpc_create(tx_queue(dataports[SEL4_DATAPORT_IOBUF]->mem[1].service_vm_va),
+			      rx_queue(dataports[SEL4_DATAPORT_IOBUF]->mem[1].service_vm_va),
 			      sel4_pci_doorbell,
-			      dataports[SEL4_DATAPORT_CONTROL]);
+			      dataports[SEL4_DATAPORT_IOBUF]);
 	if (IS_ERR(rpc)) {
 		rc = PTR_ERR(rpc);
 		goto free_vmm;
@@ -206,11 +201,9 @@ static int sel4_pci_vmm_create(struct sel4_dataport * dataports[])
 	vmm->ram = dataports[SEL4_DATAPORT_RAM]->mem[1];
 	vmm->private = rpc;
 
-	dataports[SEL4_DATAPORT_CONTROL]->vmm_id = vmm->id;
 	dataports[SEL4_DATAPORT_IOBUF]->vmm_id = vmm->id;
 	dataports[SEL4_DATAPORT_RAM]->vmm_id = vmm->id;
 
-	dataports[SEL4_DATAPORT_CONTROL]->state = SEL4_DATAPORT_ACTIVE;
 	dataports[SEL4_DATAPORT_IOBUF]->state = SEL4_DATAPORT_ACTIVE;
 	dataports[SEL4_DATAPORT_RAM]->state = SEL4_DATAPORT_ACTIVE;
 
@@ -294,9 +287,8 @@ static int sel4_pci_probe(struct pci_dev *dev,
 	/* The format of the name must be:
 	 * <buftype>-<vmid>
 	 *
-	 * where 'buftype' is 'guest-control', 'guest-iobuf' or
-	 * 'guest-ram', and 'vmid' is positive integer distinguishing
-	 * different VMs.
+	 * where 'buftype' is 'guest-iobuf' or 'guest-ram', and 'vmid' is
+	 * positive integer distinguishing different VMs.
 	 */
 	event_bar = dataport->mem[0].service_vm_va;
 	strncpy(dataport->name, (char *)&event_bar[SEL4_DEVICE_NAME_REGISTER_OFFSET], SEL4_DEVICE_NAME_MAX_LEN);
@@ -332,8 +324,7 @@ static int sel4_pci_probe(struct pci_dev *dev,
 	}
 	dataports[dataport->dataport_type] = dataport;
 
-	if (dataports[SEL4_DATAPORT_CONTROL] &&
-	    dataports[SEL4_DATAPORT_IOBUF] &&
+	if (dataports[SEL4_DATAPORT_IOBUF] &&
 	    dataports[SEL4_DATAPORT_RAM]) {
 		rc = sel4_pci_vmm_create(dataports);
 		if (rc) {

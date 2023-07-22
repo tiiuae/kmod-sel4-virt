@@ -120,7 +120,7 @@ static void sel4_test_doorbell(void *private)
 		pr_info("QEMU_OP_CLR_IRQ sent\n");
 		break;
 	case QEMU_OP_IO_HANDLED: {
-		struct sel4_iohandler_buffer *iobuf = vmm->iobuf.service_vm_va;
+		struct sel4_iohandler_buffer *iobuf = mmio_reqs(vmm->iobuf.service_vm_va);
 
 		pr_info("QEMU_OP_IO_HANDLED sent\n");
 
@@ -192,7 +192,7 @@ static struct sel4_vmm *sel4_test_vmm_create(struct sel4_vm_params params)
 		goto free_vmm;
 	}
 
-	rc = sel4_test_mem_alloc(&vmm->iobuf, PAGE_SIZE);
+	rc = sel4_test_mem_alloc(&vmm->iobuf, PAGE_SIZE * 3);
 	if (rc)
 		goto free_rpcbuf;
 
