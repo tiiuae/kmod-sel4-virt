@@ -191,7 +191,7 @@ static int test_create_iohandler(void)
 	buf = mmap(NULL, sizeof(*buf), PROT_READ | PROT_WRITE, MAP_SHARED, iohandler, 0);
 	assert_ne(buf, MAP_FAILED);
 
-	buf->request_slots[1].type = 1;
+	buf->request_slots[1].addr_space = AS_GLOBAL;
 
 	assert_eq(munmap(buf, sizeof(*buf)), 0);
 	assert_ne(close(iohandler), -1);
@@ -393,7 +393,7 @@ static int test_ioreq_pci_op_read(void)
 	assert_eq(errno, ENOMSG);
 
 	// reply data
-	ioreq->req.pci.data = 0xFF;
+	ioreq->data = 0xFF;
 
 	assert_eq(notify_io_handled(vm, slot), 0);
 
