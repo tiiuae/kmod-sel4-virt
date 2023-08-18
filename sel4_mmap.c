@@ -5,6 +5,7 @@
  */
 
 #include <linux/mm.h>
+#include <linux/version.h>
 
 #include "sel4_virt_drv.h"
 
@@ -110,9 +111,18 @@ static const struct vm_operations_struct *sel4_get_vm_ops(unsigned region)
 	return vms;
 }
 
+static inline void sel4_set_vm_flags(struct vm_area_struct *vma, vm_flags_t flags)
+{
+#if LINUX_VERSION_CODE <= KERNEL_VERSION(6,3,0)
+       vma->vm_flags |= flags;
+#else
+       vm_flags_set(vma, flags);
+#endif
+}
+
 static int sel4_mmap_logical(struct vm_area_struct *vma, unsigned region)
 {
-	vma->vm_flags |= VM_DONTEXPAND | VM_DONTDUMP;
+	sel4_set_vm_flags(vma, VM_DONTEXPAND | VM_DONTDUMP);
 	vma->vm_ops = sel4_get_vm_ops(region);
 
 	return 0;
