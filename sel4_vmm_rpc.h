@@ -54,6 +54,7 @@ typedef unsigned long seL4_Word;
 #define QEMU_OP_CLR_IRQ     17
 #define QEMU_OP_START_VM    18
 #define QEMU_OP_REGISTER_PCI_DEV    19
+#define QEMU_OP_MMIO_REGION_CONFIG  20
 
 #define QEMU_OP_MASK        0xffULL
 #define QEMU_OP_SHIFT       0

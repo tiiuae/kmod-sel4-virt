@@ -58,5 +58,13 @@ struct sel4_irqline {
 	__u32	op;
 };
 
+#define SEL4_MMIO_REGION_FREE	(1U)
+
+struct sel4_mmio_region_config {
+	__u64	gpa;
+	__u64	len;
+	__u64	flags;
+};
+
 #endif /* __SEL4_VIRT_TYPES_H */
 

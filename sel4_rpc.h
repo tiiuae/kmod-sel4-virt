@@ -29,6 +29,8 @@ int sel4_rpc_create_vpci_device(struct sel4_rpc *rpc, u32 pcidev);
 int sel4_rpc_set_irqline(struct sel4_rpc *rpc, u32 irq);
 int sel4_rpc_clear_irqline(struct sel4_rpc *rpc, u32 irq);
 int sel4_rpc_notify_io_handled(struct sel4_rpc *rpc, u32 slot);
+int sel4_rpc_set_mmio_region(struct sel4_rpc *rpc,
+			     struct sel4_mmio_region_config *config);
 
 struct sel4_rpc *sel4_rpc_create(rpcmsg_queue_t *tx, rpcmsg_queue_t *rx,
 				 void (*doorbell)(void *), void *private);
@@ -85,6 +87,16 @@ static inline int sel4_rpc_op_set_irqline(struct sel4_vmm *vmm, u32 irq, u32 op)
 	}
 
 	return rc;
+}
+
+static inline int sel4_rpc_op_set_mmio_region(struct sel4_vmm *vmm,
+					      struct sel4_mmio_region_config *config)
+{
+	struct sel4_rpc *rpc = (struct sel4_rpc *) vmm->private;
+	if (!rpc || !config) {
+		return -EINVAL;
+	}
+	return sel4_rpc_set_mmio_region(rpc, config);
 }
 
 static inline int sel4_rpc_op_notify_io_handled(struct sel4_vmm *vmm, u32 slot)

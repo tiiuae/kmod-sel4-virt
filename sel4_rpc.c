@@ -98,6 +98,22 @@ int sel4_rpc_notify_io_handled(struct sel4_rpc *rpc, u32 slot)
 	return sel4_rpc_send_msg(rpc, &msg);
 }
 
+int sel4_rpc_set_mmio_region(struct sel4_rpc *rpc,
+			     struct sel4_mmio_region_config *config)
+{
+	rpcmsg_t msg = {
+		.mr0 = QEMU_OP_MMIO_REGION_CONFIG,
+		.mr1 = config->gpa,
+		.mr2 = config->len,
+		.mr3 = config->flags,
+
+	};
+
+	BUG_ON(!rpc);
+
+	return sel4_rpc_send_msg(rpc, &msg);
+}
+
 struct sel4_rpc *sel4_rpc_create(rpcmsg_queue_t *tx,
 				 rpcmsg_queue_t *rx,
 				 void (*doorbell)(void *),
