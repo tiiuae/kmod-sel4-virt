@@ -347,6 +347,14 @@ static long sel4_vm_ioctl(struct file *filp, unsigned int ioctl,
 		rc = sel4_vm_irqfd_config(vm, &irqfd);
 		break;
 	}
+	case SEL4_MMIO_REGION: {
+		struct sel4_mmio_region_config mmio_region;
+		if (copy_from_user(&mmio_region, (void __user *) arg, sizeof(mmio_region)))
+			return -EFAULT;
+
+		rc = sel4_vm_mmio_region_config(vm, &mmio_region);
+		break;
+	}
 	case SEL4_CREATE_IO_HANDLER: {
 		rc = sel4_vm_create_iohandler(vm);
 		break;

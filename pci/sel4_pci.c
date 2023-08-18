@@ -169,6 +169,7 @@ struct sel4_vmm_ops sel4_test_vmm_ops = {
 	.create_vpci_device = sel4_rpc_op_create_vpci_device,
 	.destroy_vpci_device = sel4_rpc_op_destroy_vpci_device,
 	.set_irqline = sel4_rpc_op_set_irqline,
+	.set_mmio_region = sel4_rpc_op_set_mmio_region,
 	.upcall_irqhandler = sel4_pci_irqhandler,
 	.notify_io_handled = sel4_rpc_op_notify_io_handled,
 };

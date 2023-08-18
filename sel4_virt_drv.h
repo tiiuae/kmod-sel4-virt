@@ -44,6 +44,7 @@ struct sel4_vmm_ops {
 	int (*create_vpci_device)(struct sel4_vmm *, u32 device);
 	int (*destroy_vpci_device)(struct sel4_vmm *, u32 device);
 	int (*set_irqline)(struct sel4_vmm *, u32 irq, u32 op);
+	int (*set_mmio_region)(struct sel4_vmm *, struct sel4_mmio_region_config *config);
 
 	/* enable/disable irq */
 	int (*upcall_control)(struct sel4_vmm *, s32 upcall_on);
@@ -226,6 +227,27 @@ static inline irqreturn_t sel4_vm_call_irqhandler(struct sel4_vm *vm, int irq)
 	rc = vm->vmm->ops.upcall_irqhandler(irq, vm->vmm);
 
 unlock:
+	sel4_vm_unlock(vm, irqflags);
+
+	return rc;
+}
+
+static inline int sel4_vm_mmio_region_config(struct sel4_vm *vm,
+					     struct sel4_mmio_region_config *config)
+{
+	int rc;
+	unsigned long irqflags;
+
+	if (WARN_ON(!vm))
+		return -EINVAL;
+
+	irqflags = sel4_vm_lock(vm);
+	if (WARN_ON(!vm->vmm || !vm->vmm->ops.set_mmio_region)) {
+		sel4_vm_unlock(vm, irqflags);
+		return -ENODEV;
+	}
+
+	rc = vm->vmm->ops.set_mmio_region(vm->vmm, config);
 	sel4_vm_unlock(vm, irqflags);
 
 	return rc;
