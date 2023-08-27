@@ -173,7 +173,7 @@ struct sel4_vmm_ops sel4_test_vmm_ops = {
 	.notify_io_handled = sel4_rpc_op_notify_io_handled,
 };
 
-static int sel4_pci_vmm_create(struct sel4_dataport * dataports[])
+static int sel4_pci_vmm_create(int id, struct sel4_dataport * dataports[])
 {
 	struct sel4_vmm *vmm;
 	struct sel4_rpc *rpc;
@@ -183,6 +183,8 @@ static int sel4_pci_vmm_create(struct sel4_dataport * dataports[])
 	if (IS_ERR_OR_NULL(vmm)) {
 		return PTR_ERR(vmm);
 	}
+
+	vmm->id = id;
 
 	vmm->irq = dataports[SEL4_DATAPORT_IOBUF]->dev->irq;
 	vmm->irq_flags = IRQF_SHARED;
@@ -326,7 +328,7 @@ static int sel4_pci_probe(struct pci_dev *dev,
 
 	if (dataports[SEL4_DATAPORT_IOBUF] &&
 	    dataports[SEL4_DATAPORT_RAM]) {
-		rc = sel4_pci_vmm_create(dataports);
+		rc = sel4_pci_vmm_create(dataport->vmid, dataports);
 		if (rc) {
 			mutex_unlock(&sel4_dataports_lock);
 			goto unmap_bars;
@@ -405,7 +407,7 @@ static struct sel4_vmm *sel4_pci_vm_create(struct sel4_vm_params params)
 {
 	struct sel4_vmm *vmm;
 	mutex_lock(&sel4_dataports_lock);
-	vmm = sel4_vmmpool_get(params.ram_size);
+	vmm = sel4_vmmpool_get(params.id, params.ram_size);
 	mutex_unlock(&sel4_dataports_lock);
 	return vmm;
 }

@@ -80,7 +80,7 @@ struct sel4_vmm *sel4_vmmpool_remove(int id)
 	return vmm;
 }
 
-struct sel4_vmm *sel4_vmmpool_get(resource_size_t ram_size)
+struct sel4_vmm *sel4_vmmpool_get(int id, resource_size_t ram_size)
 {
 	struct sel4_vmmpool_entry *entry, *tmp;
 	struct sel4_vmm *vmm = NULL;
@@ -91,6 +91,9 @@ struct sel4_vmm *sel4_vmmpool_get(resource_size_t ram_size)
 	mutex_lock(&sel4_vmmpool_lock);
 
 	list_for_each_entry_safe(entry, tmp, &sel4_vmmpool, pool) {
+		if (id != VMID_DONT_CARE && id != entry->vmm->id) {
+			continue;
+		}
 		if (entry->vmm->ram.size >= ram_size) {
 			vmm = entry->vmm;
 			list_del(&entry->pool);
