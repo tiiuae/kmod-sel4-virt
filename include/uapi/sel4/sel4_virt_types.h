@@ -8,6 +8,7 @@
 
 struct sel4_vm_params {
 	__u64	ram_size;
+	__u64   id;
 };
 
 #define SEL4_MAX_IOREQS			32
