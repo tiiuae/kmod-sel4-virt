@@ -12,6 +12,8 @@
 
 #define PCI_SEL4_DEVICE_ID 0xa111
 
+#define EVENT_BAR_EMIT_REGISTER 0x0
+
 /* For now we distinguish control and guest RAM region by name */
 #define SEL4_DEVICE_NAME_REGISTER_OFFSET 2
 #define SEL4_DEVICE_NAME_MAX_LEN 50
@@ -142,26 +144,22 @@ static bool dataports_active(int vmm_id)
 
 static irqreturn_t sel4_pci_irqhandler(int irq, struct sel4_vmm *vmm)
 {
-	struct sel4_rpc *rpc = vmm->private;
-	struct sel4_dataport *dataport = rpc->private;
-	uint32_t *event_bar = dataport->mem[0].vaddr;
-	u32 val;
-
-	val = readl(&event_bar[1]);
-	if (val == 0) {
+	if (vmm->irq == IRQ_NONE || vmm->irq != irq) {
 		return IRQ_NONE;
 	}
 
-	// FIXME: save eventbar value
-	writel(0, &event_bar[1]);
+	if (!rpcmsg_queue_empty(vmm->rpc->rx_queue)) {
+		return IRQ_HANDLED;
+	}
 
-	return IRQ_HANDLED;
+	return IRQ_NONE;
 }
 
 static void sel4_pci_doorbell(void *private)
 {
-	struct sel4_dataport *dataport = private;
-	((uint32_t *) dataport->mem[0].vaddr)[0] = 1;
+	uint32_t *emit_register = private;
+
+	*emit_register = 1;
 }
 
 struct sel4_vmm_ops sel4_test_vmm_ops = {
@@ -170,7 +168,6 @@ struct sel4_vmm_ops sel4_test_vmm_ops = {
 	.destroy_vpci_device = sel4_rpc_op_destroy_vpci_device,
 	.set_irqline = sel4_rpc_op_set_irqline,
 	.upcall_irqhandler = sel4_pci_irqhandler,
-	.notify_io_handled = sel4_rpc_op_notify_io_handled,
 };
 
 static int sel4_pci_vmm_create(int id, struct sel4_dataport * dataports[])
@@ -190,18 +187,19 @@ static int sel4_pci_vmm_create(int id, struct sel4_dataport * dataports[])
 	vmm->irq_flags = IRQF_SHARED;
 
 	vmm->iobuf = dataports[SEL4_DATAPORT_IOBUF]->mem[1];
+	vmm->event_bar = dataports[SEL4_DATAPORT_IOBUF]->mem[0];
 
-	rpc = sel4_rpc_create(tx_queue(dataports[SEL4_DATAPORT_IOBUF]->mem[1].vaddr),
-			      rx_queue(dataports[SEL4_DATAPORT_IOBUF]->mem[1].vaddr),
+	rpc = sel4_rpc_create(device_tx_queue(vmm->iobuf.vaddr),
+			      device_rx_queue(vmm->iobuf.vaddr),
 			      sel4_pci_doorbell,
-			      dataports[SEL4_DATAPORT_IOBUF]);
+			      (void *)(((uintptr_t)vmm->event_bar.vaddr) + EVENT_BAR_EMIT_REGISTER));
 	if (IS_ERR(rpc)) {
 		rc = PTR_ERR(rpc);
 		goto free_vmm;
 	}
 
 	vmm->ram = dataports[SEL4_DATAPORT_RAM]->mem[1];
-	vmm->private = rpc;
+	vmm->rpc = rpc;
 
 	dataports[SEL4_DATAPORT_IOBUF]->vmm_id = vmm->id;
 	dataports[SEL4_DATAPORT_RAM]->vmm_id = vmm->id;
@@ -226,10 +224,10 @@ free_vmm:
 
 static void sel4_pci_vmm_destroy(struct sel4_vmm *vmm)
 {
-	if (WARN_ON(!vmm || !vmm->private))
+	if (WARN_ON(!vmm || !vmm->rpc))
 		return;
 
-	sel4_rpc_destroy(vmm->private);
+	sel4_rpc_destroy(vmm->rpc);
 	kfree(vmm);
 }
 

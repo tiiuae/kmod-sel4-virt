@@ -49,8 +49,6 @@ struct sel4_vmm_ops {
 	int (*upcall_control)(struct sel4_vmm *, s32 upcall_on);
 	/* irq handler */
 	irqreturn_t (*upcall_irqhandler)(int irq, struct sel4_vmm *);
-
-	int (*notify_io_handled)(struct sel4_vmm *, u32 slot);
 };
 
 /* Use this to indicate that the VMM uses some other upcall mechanism,
@@ -65,8 +63,9 @@ struct sel4_vmm {
 	struct sel4_vmm_ops	ops;
 	struct sel4_mem_map	iobuf;
 	struct sel4_mem_map	ram;
+	struct sel4_mem_map	event_bar;
 	struct sel4_vm		*vm;
-	void			*private;
+	sel4_rpc_t		*rpc;
 };
 
 /* Indicates whether ioeventfd processed the ioreq */
@@ -79,8 +78,6 @@ struct sel4_vm {
 	refcount_t		refcount;
 
 	wait_queue_head_t	ioreq_wait;
-	struct sel4_iohandler_buffer *ioreq_buffer;
-	DECLARE_BITMAP(ioreq_map, SEL4_MAX_IOREQS);
 
 	struct list_head	ioeventfds;
 
@@ -111,12 +108,6 @@ static inline int sel4_start_vm(struct sel4_vm *vm)
 	irqflags = sel4_vm_lock(vm);
 	if (WARN_ON(!vm->vmm || !vm->vmm->ops.start_vm)) {
 		rc = -ENODEV;
-		goto out_unlock;
-	}
-
-	if (!vm->ioreq_buffer) {
-		pr_notice("no ioreq handler");
-		rc = -EBADFD;
 		goto out_unlock;
 	}
 
@@ -190,24 +181,6 @@ static inline int sel4_vm_set_irqline(struct sel4_vm *vm, u32 irq, u32 op)
 	return rc;
 }
 
-static inline int sel4_vm_notify_io_handled(struct sel4_vm *vm, u32 slot)
-{
-	int rc;
-
-	if (WARN_ON(!vm || !SEL4_IOREQ_SLOT_VALID(slot)))
-		return -EINVAL;
-
-	lockdep_assert_held(&vm->lock);
-
-	if (WARN_ON(!vm->vmm || !vm->vmm->ops.notify_io_handled)) {
-		return -ENODEV;
-	}
-
-	rc = vm->vmm->ops.notify_io_handled(vm->vmm, slot);
-
-	return rc;
-}
-
 static inline int sel4_vm_irqfd_config(struct sel4_vm *vm,
 				       struct sel4_irqfd_config *irqfd)
 {
@@ -258,7 +231,9 @@ int sel4_vm_ioeventfd_config(struct sel4_vm *vm,
  *
  * On errors a negative value is returned.
  */
-int sel4_vm_ioeventfd_process(struct sel4_vm *vm, int slot);
+int sel4_vm_ioeventfd_process(struct sel4_vm *vm, unsigned int direction,
+			      unsigned int addr_space, unsigned int len,
+			      seL4_Word addr, seL4_Word *data);
 
 int sel4_init(struct sel4_vm_server *vm_server, struct module *module);
 void sel4_exit(void);

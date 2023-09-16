@@ -16,8 +16,7 @@ static bool vmm_ops_valid(struct sel4_vmm_ops ops)
 {
 	return (ops.start_vm &&
 		ops.create_vpci_device &&
-		ops.set_irqline &&
-		ops.notify_io_handled);
+		ops.set_irqline);
 }
 
 static bool sel4_mem_map_valid(struct sel4_mem_map *mem)
@@ -60,4 +59,3 @@ struct sel4_vmm *sel4_vmm_alloc(struct sel4_vmm_ops ops)
 
 	return vmm;
 }
-

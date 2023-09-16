@@ -161,38 +161,28 @@ static int sel4_ioeventfd_deassign(struct sel4_vm *vm,
 	return 0;
 }
 
-int sel4_vm_ioeventfd_process(struct sel4_vm *vm, int slot)
+int sel4_vm_ioeventfd_process(struct sel4_vm *vm, unsigned int direction,
+			      unsigned int addr_space, unsigned int len,
+			      seL4_Word addr, seL4_Word *data)
 {
-	struct sel4_ioreq *ioreq = vm->ioreq_buffer->request_slots + slot;
 	struct sel4_ioeventfd *ioeventfd;
-	int rc = SEL4_IOEVENTFD_NONE;
 
 	lockdep_assert_held(&vm->lock);
 
-	if (WARN_ON(!SEL4_IOREQ_SLOT_VALID(slot))) {
-		return -EINVAL;
-	}
-
-	if (ioreq->direction == SEL4_IO_DIR_READ) {
+	if (direction == SEL4_IO_DIR_READ) {
 		/* let userspace process reads */
 		return SEL4_IOEVENTFD_NONE;
 	}
 
-	ioeventfd = sel4_ioeventfd_match(vm, ioreq->addr_space, ioreq->addr,
-					 ioreq->len, ioreq->data);
-	if (ioeventfd) {
-		/* signal the eventfd and mark request as complete */
-		eventfd_signal(ioeventfd->eventfd, 1);
-		smp_store_release(&ioreq->state, SEL4_IOREQ_STATE_COMPLETE);
-
-		rc = sel4_vm_notify_io_handled(vm, slot);
-		if (rc)
-			return rc;
-
-		return SEL4_IOEVENTFD_PROCESSED;
+	ioeventfd = sel4_ioeventfd_match(vm, addr_space, addr, len, *data);
+	if (!ioeventfd) {
+		return SEL4_IOEVENTFD_NONE;
 	}
 
-	return rc;
+	/* signal the eventfd and mark request as complete */
+	eventfd_signal(ioeventfd->eventfd, 1);
+
+	return SEL4_IOEVENTFD_PROCESSED;
 }
 
 int sel4_vm_ioeventfd_config(struct sel4_vm *vm,
