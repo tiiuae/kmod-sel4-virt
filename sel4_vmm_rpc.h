@@ -30,20 +30,23 @@ typedef unsigned long seL4_Word;
 #define rpc_assert assert
 #endif
 
-#ifdef SEL4_VMM
-#define IOBUF_PAGE_RECV 2
-#define IOBUF_PAGE_SEND 1
-#else
-#define IOBUF_PAGE_RECV 1
-#define IOBUF_PAGE_SEND 2
-#endif
-#define IOBUF_PAGE_MMIO 0
+#define IOBUF_PAGE_VMM_RECV     2
+#define IOBUF_PAGE_VMM_SEND     1
+#define IOBUF_PAGE_VMM_MMIO     0
+
+#define IOBUF_PAGE_EMU_RECV     IOBUF_PAGE_VMM_SEND
+#define IOBUF_PAGE_EMU_SEND     IOBUF_PAGE_VMM_RECV
+#define IOBUF_PAGE_EMU_MMIO     0
 
 #define iobuf_page(_iobuf, _page) (((uintptr_t)(_iobuf)) + (4096 * (_page)))
 
-#define tx_queue(_iobuf) ((rpcmsg_queue_t *)iobuf_page((_iobuf), IOBUF_PAGE_SEND))
-#define rx_queue(_iobuf) ((rpcmsg_queue_t *)iobuf_page((_iobuf), IOBUF_PAGE_RECV))
-#define mmio_reqs(_iobuf) ((struct sel4_iohandler_buffer *)iobuf_page((_iobuf), IOBUF_PAGE_MMIO))
+#define emu_tx_queue(_iobuf) ((rpcmsg_queue_t *)iobuf_page((_iobuf), IOBUF_PAGE_EMU_SEND))
+#define emu_rx_queue(_iobuf) ((rpcmsg_queue_t *)iobuf_page((_iobuf), IOBUF_PAGE_EMU_RECV))
+#define emu_mmio_reqs(_iobuf) ((struct sel4_iohandler_buffer *)iobuf_page((_iobuf), IOBUF_PAGE_EMU_MMIO))
+
+#define vmm_tx_queue(_iobuf) ((rpcmsg_queue_t *)iobuf_page((_iobuf), IOBUF_PAGE_VMM_SEND))
+#define vmm_rx_queue(_iobuf) ((rpcmsg_queue_t *)iobuf_page((_iobuf), IOBUF_PAGE_VMM_RECV))
+#define vmm_mmio_reqs(_iobuf) ((struct sel4_iohandler_buffer *)iobuf_page((_iobuf), IOBUF_PAGE_VMM_MMIO))
 
 /* from VMM to QEMU */
 #define QEMU_OP_IO_HANDLED  0

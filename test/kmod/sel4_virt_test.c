@@ -19,9 +19,6 @@
 
 #define SEL4_TEST_RPCBUF_SIZE 0x100000
 
-#define rx_queue(_rpcbuf) (((rpcmsg_queue_t *) _rpcbuf) + 0)
-#define tx_queue(_rpcbuf) (((rpcmsg_queue_t *) _rpcbuf) + 1)
-
 /* Functions for injecting ioreqs from user space */
 static int sel4_test_inject_ioreq(struct sel4_vm *vm,
 				  struct sel4_test_ioreq *inject)
@@ -120,7 +117,7 @@ static void sel4_test_doorbell(void *private)
 		pr_info("QEMU_OP_CLR_IRQ sent\n");
 		break;
 	case QEMU_OP_IO_HANDLED: {
-		struct sel4_iohandler_buffer *iobuf = mmio_reqs(vmm->iobuf.service_vm_va);
+		struct sel4_iohandler_buffer *iobuf = emu_mmio_reqs(vmm->iobuf.service_vm_va);
 
 		pr_info("QEMU_OP_IO_HANDLED sent\n");
 
@@ -200,8 +197,8 @@ static struct sel4_vmm *sel4_test_vmm_create(struct sel4_vm_params params)
 	if (rc)
 		goto free_iobuf;
 
-	rpc = sel4_rpc_create(tx_queue(rpc_buffer),
-			      rx_queue(rpc_buffer),
+	rpc = sel4_rpc_create(emu_tx_queue(rpc_buffer),
+			      emu_rx_queue(rpc_buffer),
 			      sel4_test_doorbell,
 			      vmm);
 	if (IS_ERR(rpc)) {
