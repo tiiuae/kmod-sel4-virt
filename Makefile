@@ -24,11 +24,11 @@ else
 
 PUB_HEADERS := include/uapi/sel4/sel4_virt.h \
 	       include/uapi/sel4/sel4_virt_types.h \
+	       include/uapi/sel4/sel4_vmm_rpc.h \
 
 DEPS := $(PUB_HEADERS) \
 	sel4_virt_drv.h \
 	sel4_rpc.h \
-	sel4_vmm_rpc.h \
 	pci/sel4_vmm_pool.h \
 	test/kmod/sel4_virt_test.h
 KERNEL_SRC ?= /lib/modules/`uname -r`/build

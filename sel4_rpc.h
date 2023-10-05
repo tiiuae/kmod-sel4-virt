@@ -8,7 +8,7 @@
 
 #include <linux/types.h>
 #include <linux/spinlock.h>
-#include "sel4_vmm_rpc.h"
+#include "sel4/sel4_vmm_rpc.h"
 #include "sel4_virt_drv.h"
 
 struct sel4_rpc {

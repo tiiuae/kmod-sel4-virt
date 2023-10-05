@@ -22,7 +22,7 @@
 
 #include "sel4/sel4_virt.h"
 #include "sel4_virt_drv.h"
-#include "sel4_vmm_rpc.h"
+#include "sel4/sel4_vmm_rpc.h"
 
 /* Large enough to hold huge number with sign and null character */
 #define ITOA_MAX_LEN	(12)

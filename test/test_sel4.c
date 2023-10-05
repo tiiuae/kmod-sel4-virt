@@ -22,7 +22,7 @@
 #include "sel4_virt_test.h"
 
 #define TEST
-#include "sel4_vmm_rpc.h"
+#include "sel4/sel4_vmm_rpc.h"
 
 
 #define atomic_load(_ptr) __atomic_load_n((_ptr), __ATOMIC_ACQUIRE)
