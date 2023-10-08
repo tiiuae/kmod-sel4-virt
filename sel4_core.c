@@ -264,7 +264,7 @@ void sel4_put_no_destroy(struct sel4_vm *vm)
 	WARN_ON(refcount_dec_and_test(&vm->refcount));
 }
 
-static int sel4_iohandler_release(struct inode *inode, struct file *filp)
+static int sel4_handler_release(struct inode *inode, struct file *filp)
 {
 	struct sel4_vm *vm = filp->private_data;
 
@@ -273,28 +273,25 @@ static int sel4_iohandler_release(struct inode *inode, struct file *filp)
 }
 
 static struct file_operations sel4_iohandler_fops = {
-	.release        = sel4_iohandler_release,
+	.release        = sel4_handler_release,
 	.mmap           = sel4_iohandler_mmap,
 	.llseek		= noop_llseek,
 };
 
-static int sel4_vm_create_iohandler(struct sel4_vm *vm)
+static struct file_operations sel4_event_bar_fops = {
+	.release        = sel4_handler_release,
+	.mmap           = sel4_event_bar_mmap,
+	.llseek		= noop_llseek,
+};
+
+static int sel4_vm_create_handler(struct sel4_vm *vm, const char *name,
+				  struct file_operations *fops)
 {
 	int rc;
 	unsigned long irqflags;
 
-	irqflags = sel4_vm_lock(vm);
-	if (vm->vmm && vm->vmm->rpc) {
-		sel4_vm_unlock(vm, irqflags);
-		return -EEXIST;
-	}
-
-	sel4_vm_unlock(vm, irqflags);
-
-	/* new fd for iohandler */
 	sel4_vm_get(vm);
-	rc = anon_inode_getfd("sel4-vm-iohandler", &sel4_iohandler_fops, vm,
-			      O_RDWR | O_CLOEXEC);
+	rc = anon_inode_getfd(name, fops, vm, O_RDWR | O_CLOEXEC);
 	if (rc < 0)
 		goto error;
 
@@ -389,7 +386,11 @@ static long sel4_vm_ioctl(struct file *filp, unsigned int ioctl,
 		break;
 	}
 	case SEL4_CREATE_IO_HANDLER: {
-		rc = sel4_vm_create_iohandler(vm);
+		rc = sel4_vm_create_handler(vm, "sel4-vm-iohandler", &sel4_iohandler_fops);
+		break;
+	}
+	case SEL4_CREATE_EVENT_BAR: {
+		rc = sel4_vm_create_handler(vm, "sel4-vm-event", &sel4_event_bar_fops);
 		break;
 	}
 	case SEL4_WAIT_IO: {

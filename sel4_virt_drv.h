@@ -245,6 +245,7 @@ int sel4_notify_vmm_dying(int id);
 long sel4_module_ioctl(struct file *filp, unsigned int ioctl,
 		       unsigned long arg);
 
+int sel4_event_bar_mmap(struct file *filp, struct vm_area_struct *vma);
 int sel4_iohandler_mmap(struct file *filp, struct vm_area_struct *vma);
 int sel4_vm_mmap_ram(struct file *filp, struct vm_area_struct *vma);
 
