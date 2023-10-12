@@ -27,8 +27,8 @@ static bool sel4_mem_map_valid(struct sel4_mem_map *mem)
 	}
 
 	return (mem->size &&
-		mem->service_vm_va &&
-		PAGE_ALIGNED(mem->service_vm_va));
+		mem->vaddr &&
+		PAGE_ALIGNED(mem->vaddr));
 }
 
 bool sel4_vmm_valid(struct sel4_vmm *vmm)

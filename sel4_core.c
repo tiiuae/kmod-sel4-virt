@@ -225,7 +225,7 @@ static int sel4_vm_create_iohandler(struct sel4_vm *vm)
 		return -EEXIST;
 	}
 
-	vm->ioreq_buffer = mmio_reqs(vm->vmm->iobuf.service_vm_va);
+	vm->ioreq_buffer = mmio_reqs(vm->vmm->iobuf.vaddr);
 	sel4_vm_unlock(vm, irqflags);
 
 	/* new fd for iohandler */

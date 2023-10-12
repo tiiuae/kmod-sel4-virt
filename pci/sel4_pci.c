@@ -144,7 +144,7 @@ static irqreturn_t sel4_pci_irqhandler(int irq, struct sel4_vmm *vmm)
 {
 	struct sel4_rpc *rpc = vmm->private;
 	struct sel4_dataport *dataport = rpc->private;
-	uint32_t *event_bar = dataport->mem[0].service_vm_va;
+	uint32_t *event_bar = dataport->mem[0].vaddr;
 	u32 val;
 
 	val = readl(&event_bar[1]);
@@ -161,7 +161,7 @@ static irqreturn_t sel4_pci_irqhandler(int irq, struct sel4_vmm *vmm)
 static void sel4_pci_doorbell(void *private)
 {
 	struct sel4_dataport *dataport = private;
-	((uint32_t *) dataport->mem[0].service_vm_va)[0] = 1;
+	((uint32_t *) dataport->mem[0].vaddr)[0] = 1;
 }
 
 struct sel4_vmm_ops sel4_test_vmm_ops = {
@@ -191,8 +191,8 @@ static int sel4_pci_vmm_create(int id, struct sel4_dataport * dataports[])
 
 	vmm->iobuf = dataports[SEL4_DATAPORT_IOBUF]->mem[1];
 
-	rpc = sel4_rpc_create(tx_queue(dataports[SEL4_DATAPORT_IOBUF]->mem[1].service_vm_va),
-			      rx_queue(dataports[SEL4_DATAPORT_IOBUF]->mem[1].service_vm_va),
+	rpc = sel4_rpc_create(tx_queue(dataports[SEL4_DATAPORT_IOBUF]->mem[1].vaddr),
+			      rx_queue(dataports[SEL4_DATAPORT_IOBUF]->mem[1].vaddr),
 			      sel4_pci_doorbell,
 			      dataports[SEL4_DATAPORT_IOBUF]);
 	if (IS_ERR(rpc)) {
@@ -268,9 +268,9 @@ static int sel4_pci_probe(struct pci_dev *dev,
 			break;
 		}
 
-		dataport->mem[i].service_vm_va = ioremap_cache(pci_resource_start(dev, i),
+		dataport->mem[i].vaddr = ioremap_cache(pci_resource_start(dev, i),
 							       pci_resource_len(dev, i));
-		if (!dataport->mem[i].service_vm_va) {
+		if (!dataport->mem[i].vaddr) {
 			rc = 1;
 			break;
 		}
@@ -292,7 +292,7 @@ static int sel4_pci_probe(struct pci_dev *dev,
 	 * where 'buftype' is 'guest-iobuf' or 'guest-ram', and 'vmid' is
 	 * positive integer distinguishing different VMs.
 	 */
-	event_bar = dataport->mem[0].service_vm_va;
+	event_bar = dataport->mem[0].vaddr;
 	strncpy(dataport->name, (char *)&event_bar[SEL4_DEVICE_NAME_REGISTER_OFFSET], SEL4_DEVICE_NAME_MAX_LEN);
 	dataport->name[SEL4_DEVICE_NAME_MAX_LEN] = '\0'; /* for kstrtoint */
 
@@ -346,7 +346,7 @@ static int sel4_pci_probe(struct pci_dev *dev,
 
 unmap_bars:
 	for (i = 0; i <= last_bar; i++) {
-		iounmap(dataport->mem[i].service_vm_va);
+		iounmap(dataport->mem[i].vaddr);
 	}
 	pci_release_regions(dev);
 
@@ -396,7 +396,7 @@ static void sel4_pci_remove(struct pci_dev *dev)
 	pci_info(dev, "destroying %s\n", dataport->name);
 
 	for (i = 0; i < 2; i++) {
-		iounmap(dataport->mem[i].service_vm_va);
+		iounmap(dataport->mem[i].vaddr);
 	}
 	pci_release_regions(dev);
 	pci_disable_device(dev);
