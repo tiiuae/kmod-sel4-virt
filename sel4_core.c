@@ -22,7 +22,6 @@
 
 #include "sel4/sel4_virt.h"
 #include "sel4_virt_drv.h"
-#include "sel4_vmm_rpc.h"
 
 /* Large enough to hold huge number with sign and null character */
 #define ITOA_MAX_LEN	(12)
@@ -39,27 +38,83 @@ static DECLARE_WORK(sel4_ioreq_work, sel4_vm_upcall_work);
 
 static void sel4_vm_process_ioreqs(struct sel4_vm *vm)
 {
-	struct sel4_ioreq *ioreq;
-	int slot;
+	rpcmsg_t *req;
 	unsigned long irqflags;
+	unsigned int direction;
+	unsigned int addr_space;
+	unsigned int len;
+	unsigned int slot;
+	seL4_Word addr;
+	seL4_Word data;
+	sel4_rpc_t *rpc;
 
 	irqflags = sel4_vm_lock(vm);
 
-	if (!vm->ioreq_buffer)
+	rpc = vm->vmm->rpc;
+	if (!rpc)
 		goto out_unlock;
 
-	for (slot = 0; slot < SEL4_MAX_IOREQS; slot++) {
-		ioreq = vm->ioreq_buffer->request_slots + slot;
-		if (smp_load_acquire(&ioreq->state) == SEL4_IOREQ_STATE_PENDING) {
-			if (sel4_vm_ioeventfd_process(vm, slot) == SEL4_IOEVENTFD_PROCESSED)
-				continue;
-
-			smp_store_release(&ioreq->state,
-					  SEL4_IOREQ_STATE_PROCESSING);
-			set_bit(slot, vm->ioreq_map);
-
-			wake_up_interruptible(&vm->ioreq_wait);
+	req = NULL;
+	while (rpc && (req = rpcmsg_queue_iterate(rpc->rx_queue, req)) != NULL) {
+		if (BIT_FIELD_GET(req->mr0, RPC_MR0_STATE) == RPC_MR0_STATE_RESERVED) {
+	                /* VMM side is still crafting the message, try again later */
+			break;
 		}
+
+		if (BIT_FIELD_GET(req->mr0, RPC_MR0_STATE) == RPC_MR0_STATE_COMPLETE) {
+			/* userspace has handled this */
+			continue;
+		}
+
+		if (BIT_FIELD_GET(req->mr0, RPC_MR0_STATE) == RPC_MR0_STATE_PROCESSING) {
+			/* kernel has already tried to process it, but since we are
+			 * here, it didn't work out, let's propagate to user space */
+			break;
+		}
+
+		/* out of four states, state must be RPC_MR0_STATE_PENDING here */
+
+		req->mr0 = BIT_FIELD_SET(req->mr0, RPC_MR0_STATE, RPC_MR0_STATE_PROCESSING);
+
+		if (BIT_FIELD_GET(req->mr0, RPC_MR0_OP) != RPC_MR0_OP_MMIO)
+			break;
+
+		direction = BIT_FIELD_GET(req->mr0, RPC_MR0_MMIO_DIRECTION);
+		addr_space = BIT_FIELD_GET(req->mr0, RPC_MR0_MMIO_ADDR_SPACE);
+		len = BIT_FIELD_GET(req->mr0, RPC_MR0_MMIO_LENGTH);
+		slot = BIT_FIELD_GET(req->mr0, RPC_MR0_MMIO_SLOT);
+		addr = req->mr1;
+		data = req->mr2;
+
+		if (sel4_vm_ioeventfd_process(vm, direction, addr_space, len, addr, &data) != SEL4_IOEVENTFD_PROCESSED) {
+			/* didn't work out, userspace needs to finish this first
+			 * before we can proceed trying to handle message in kernel
+			 */
+			break;
+		}
+
+		/* ignore data -- this is write */
+		rpc = driver_ack_mmio_finish(rpc, slot, 0);
+		BUG_ON(!rpc);
+
+		req->mr0 = BIT_FIELD_SET(req->mr0, RPC_MR0_STATE, RPC_MR0_STATE_COMPLETE);
+	}
+
+
+	req = NULL;
+	while (rpc && (req = rpcmsg_queue_iterate(rpc->rx_queue, req)) != NULL) {
+		if (BIT_FIELD_GET(req->mr0, RPC_MR0_STATE) != RPC_MR0_STATE_COMPLETE)
+			break;
+
+		rpcmsg_queue_advance_head(rpc->rx_queue);
+	}
+
+	if (rpc && rpcmsg_queue_empty(rpc->rx_queue)) {
+		/* no reason to wake up userspace, let's ring doorbell ourselves */
+		sel4_rpc_doorbell(rpc);
+	} else {
+		/* let userspace ring the doorbell (before re-entering wait at latest) */
+		wake_up_interruptible(&vm->ioreq_wait);
 	}
 
 out_unlock:
@@ -70,6 +125,8 @@ static void sel4_vm_upcall_work(struct work_struct *work)
 {
 	struct sel4_vm *vm;
 
+	/* TODO: have per-VM wqs and get rid of this loop -- now this handles
+	 * also VMs registered for different IRQ */
 	read_lock(&vm_list_lock);
 	list_for_each_entry(vm, &vm_list, vm_list) {
 		sel4_vm_process_ioreqs(vm);
@@ -84,14 +141,25 @@ void sel4_vm_upcall_notify(struct sel4_vm *vm)
 
 static irqreturn_t sel4_vm_interrupt(int irq, void *private)
 {
-	struct sel4_vm *vm = (struct sel4_vm *) private;
+	struct sel4_vm *vm;
+	int rc, ret;
 
-	irqreturn_t rc = sel4_vm_call_irqhandler(vm, irq);
+	ret = IRQ_NONE;
 
-	if (rc == IRQ_HANDLED)
+	read_lock(&vm_list_lock);
+	list_for_each_entry(vm, &vm_list, vm_list) {
+		rc = sel4_vm_call_irqhandler(vm, irq);
+		/* TODO: have per-VM wqs and notify them here */
+		if (rc == IRQ_HANDLED) {
+			ret = IRQ_HANDLED;
+		}
+	}
+	read_unlock(&vm_list_lock);
+
+	if (ret == IRQ_HANDLED)
 		sel4_vm_upcall_notify(vm);
 
-	return rc;
+	return ret;
 }
 
 static struct sel4_vm *sel4_vm_create(struct sel4_vm_params vm_params)
@@ -120,8 +188,6 @@ static struct sel4_vm *sel4_vm_create(struct sel4_vm_params vm_params)
 
 	refcount_set(&vm->refcount, 1);
 
-	/* FIXME: to own file */
-	vm->ioreq_buffer = NULL;
 	init_waitqueue_head(&vm->ioreq_wait);
 
 	INIT_LIST_HEAD(&vm->ioeventfds);
@@ -166,7 +232,6 @@ static void sel4_destroy_vm(struct sel4_vm *vm)
 	write_unlock_bh(&vm_list_lock);
 
 	irqflags = sel4_vm_lock(vm);
-	vm->ioreq_buffer = NULL;
 	vm_server->destroy_vm(vm->vmm);
 	sel4_vm_unlock(vm, irqflags);
 
@@ -199,7 +264,7 @@ void sel4_put_no_destroy(struct sel4_vm *vm)
 	WARN_ON(refcount_dec_and_test(&vm->refcount));
 }
 
-static int sel4_iohandler_release(struct inode *inode, struct file *filp)
+static int sel4_handler_release(struct inode *inode, struct file *filp)
 {
 	struct sel4_vm *vm = filp->private_data;
 
@@ -208,30 +273,25 @@ static int sel4_iohandler_release(struct inode *inode, struct file *filp)
 }
 
 static struct file_operations sel4_iohandler_fops = {
-	.release        = sel4_iohandler_release,
+	.release        = sel4_handler_release,
 	.mmap           = sel4_iohandler_mmap,
 	.llseek		= noop_llseek,
 };
 
-static int sel4_vm_create_iohandler(struct sel4_vm *vm)
+static struct file_operations sel4_event_bar_fops = {
+	.release        = sel4_handler_release,
+	.mmap           = sel4_event_bar_mmap,
+	.llseek		= noop_llseek,
+};
+
+static int sel4_vm_create_handler(struct sel4_vm *vm, const char *name,
+				  struct file_operations *fops)
 {
 	int rc;
 	unsigned long irqflags;
 
-
-	irqflags = sel4_vm_lock(vm);
-	if (vm->ioreq_buffer) {
-		sel4_vm_unlock(vm, irqflags);
-		return -EEXIST;
-	}
-
-	vm->ioreq_buffer = mmio_reqs(vm->vmm->iobuf.service_vm_va);
-	sel4_vm_unlock(vm, irqflags);
-
-	/* new fd for iohandler */
 	sel4_vm_get(vm);
-	rc = anon_inode_getfd("sel4-vm-iohandler", &sel4_iohandler_fops, vm,
-			      O_RDWR | O_CLOEXEC);
+	rc = anon_inode_getfd(name, fops, vm, O_RDWR | O_CLOEXEC);
 	if (rc < 0)
 		goto error;
 
@@ -239,7 +299,6 @@ static int sel4_vm_create_iohandler(struct sel4_vm *vm)
 
 error:
 	irqflags = sel4_vm_lock(vm);
-	vm->ioreq_buffer = NULL;
 	sel4_vm_unlock(vm, irqflags);
 
 	sel4_put_no_destroy(vm);
@@ -247,39 +306,19 @@ error:
 	return rc;
 }
 
-static int sel4_vm_ioreq_complete(struct sel4_vm *vm, u32 slot)
-{
-	struct sel4_ioreq *ioreq;
-	int rc = 0;
-	unsigned long irqflags;
-
-	if (!SEL4_IOREQ_SLOT_VALID(slot)) {
-		return -EINVAL;
-	}
-
-	irqflags = sel4_vm_lock(vm);
-	if (vm->ioreq_buffer) {
-		clear_bit(slot, vm->ioreq_map);
-		ioreq = vm->ioreq_buffer->request_slots + slot;
-		smp_store_release(&ioreq->state, SEL4_IOREQ_STATE_COMPLETE);
-		rc = sel4_vm_notify_io_handled(vm, slot);
-	} else {
-		rc = -ENODEV;
-	}
-	sel4_vm_unlock(vm, irqflags);
-
-	return rc;
-}
-
 static inline bool sel4_ioreq_pending(struct sel4_vm *vm)
 {
-	return !bitmap_empty(vm->ioreq_map, SEL4_MAX_IOREQS);
+	return !rpcmsg_queue_empty(vm->vmm->rpc->rx_queue);
 }
 
 static int sel4_vm_wait_io(struct sel4_vm *vm)
 {
-	if (!vm->ioreq_buffer) {
+	if (!vm || !vm->vmm || !vm->vmm->rpc) {
 		return -ENODEV;
+	}
+
+	if (!rpcmsg_queue_empty(vm->vmm->rpc->rx_queue)) {
+		sel4_vm_upcall_notify(vm);
 	}
 
 	if (wait_event_interruptible(vm->ioreq_wait, sel4_ioreq_pending(vm))) {
@@ -347,18 +386,17 @@ static long sel4_vm_ioctl(struct file *filp, unsigned int ioctl,
 		break;
 	}
 	case SEL4_CREATE_IO_HANDLER: {
-		rc = sel4_vm_create_iohandler(vm);
+		rc = sel4_vm_create_handler(vm, "sel4-vm-iohandler", &sel4_iohandler_fops);
+		break;
+	}
+	case SEL4_CREATE_EVENT_BAR: {
+		rc = sel4_vm_create_handler(vm, "sel4-vm-event", &sel4_event_bar_fops);
 		break;
 	}
 	case SEL4_WAIT_IO: {
 		rc = sel4_vm_wait_io(vm);
 		break;
 	}
-	case SEL4_NOTIFY_IO_HANDLED: {
-		rc = sel4_vm_ioreq_complete(vm, arg);
-		break;
-	}
-
 	default:
 		rc = sel4_module_ioctl(filp, ioctl, arg);
 		break;

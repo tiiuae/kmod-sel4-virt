@@ -10,7 +10,7 @@ ifneq ($(KERNELRELEASE),)
 sel4_virt := sel4_core.o sel4_vmm.o sel4_rpc.o sel4_mmap.o sel4_ioeventfd.o
 sel4_pci := pci/sel4_pci.o pci/sel4_vmm_pool.o
 
-obj-m := sel4_virt.o sel4_virt_test.o
+obj-m := sel4_virt.o # sel4_virt_test.o
 sel4_virt-y := $(sel4_virt) $(sel4_pci)
 sel4_virt_test-y := $(sel4_virt) test/kmod/sel4_virt_test.o
 
@@ -19,11 +19,11 @@ else
 
 PUB_HEADERS := include/uapi/sel4/sel4_virt.h \
 	       include/uapi/sel4/sel4_virt_types.h \
+	       include/uapi/sel4/sel4_vmm_rpc.h \
 
 DEPS := $(PUB_HEADERS) \
 	sel4_virt_drv.h \
 	sel4_rpc.h \
-	sel4_vmm_rpc.h \
 	pci/sel4_vmm_pool.h \
 	test/kmod/sel4_virt_test.h
 KERNEL_SRC ?= /lib/modules/`uname -r`/build

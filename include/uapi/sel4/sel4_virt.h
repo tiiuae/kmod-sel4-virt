@@ -47,6 +47,6 @@ struct sel4_irqfd_config {
 /* Returns fd which is to be mmap'd with size SEL4_IOREQ_MMAP_SIZE. */
 #define SEL4_CREATE_IO_HANDLER	_IO(SEL4_IOCTL, 0x30)
 #define SEL4_WAIT_IO		_IO(SEL4_IOCTL, 0x31)
-#define SEL4_NOTIFY_IO_HANDLED	_IOW(SEL4_IOCTL, 0x32, __u64)
+#define SEL4_CREATE_EVENT_BAR	_IO(SEL4_IOCTL, 0x32)
 
 #endif /* __SEL4_VIRT_H */

@@ -6,97 +6,7 @@
 #include <linux/errno.h>
 #include <linux/slab.h>
 
-#include "sel4_rpc.h"
 #include "sel4/sel4_virt.h"
-
-static void sel4_rpc_doorbell_ring(struct sel4_rpc *rpc)
-{
-	BUG_ON(!rpc || !rpc->doorbell);
-	rpc->doorbell(rpc->private);
-}
-
-static int sel4_rpc_send_msg(struct sel4_rpc *rpc, const rpcmsg_t *msg)
-{
-	rpcmsg_t *new;
-
-	BUG_ON(!rpc || !rpc->tx_queue || !msg);
-
-	spin_lock(&rpc->tx_lock);
-	new = rpcmsg_queue_tail(rpc->tx_queue);
-	if (!new) {
-		pr_err("TX queue full\n");
-		spin_unlock(&rpc->tx_lock);
-		return -EBUSY;
-	}
-
-	*new = *msg;
-	smp_mb();	// smb_wmb?
-	rpcmsg_queue_advance_tail(rpc->tx_queue);
-	sel4_rpc_doorbell_ring(rpc);
-	spin_unlock(&rpc->tx_lock);
-
-	return 0;
-}
-
-int sel4_rpc_start_vm(struct sel4_rpc *rpc)
-{
-	rpcmsg_t msg = {
-		.mr0 = QEMU_OP_START_VM,
-	};
-
-	BUG_ON(!rpc);
-
-	return sel4_rpc_send_msg(rpc, &msg);
-}
-
-int sel4_rpc_create_vpci_device(struct sel4_rpc *rpc, u32 pcidev)
-{
-	rpcmsg_t msg = {
-		.mr0 = QEMU_OP_REGISTER_PCI_DEV,
-		.mr1 = pcidev,
-	};
-
-	BUG_ON(!rpc);
-
-	return sel4_rpc_send_msg(rpc, &msg);
-}
-
-int sel4_rpc_set_irqline(struct sel4_rpc *rpc, u32 irq)
-{
-	rpcmsg_t msg = {
-		.mr0 = QEMU_OP_SET_IRQ,
-		.mr1 = irq,
-	};
-
-	BUG_ON(!rpc);
-
-	return sel4_rpc_send_msg(rpc, &msg);
-}
-
-int sel4_rpc_clear_irqline(struct sel4_rpc *rpc, u32 irq)
-{
-	rpcmsg_t msg = {
-		.mr0 = QEMU_OP_CLR_IRQ,
-		.mr1 = irq,
-	};
-
-	BUG_ON(!rpc);
-
-	return sel4_rpc_send_msg(rpc, &msg);
-}
-
-int sel4_rpc_notify_io_handled(struct sel4_rpc *rpc, u32 slot)
-{
-	rpcmsg_t msg = {
-		.mr0 = QEMU_OP_IO_HANDLED,
-		.mr1 = slot,
-	};
-
-
-	BUG_ON(!rpc);
-
-	return sel4_rpc_send_msg(rpc, &msg);
-}
 
 struct sel4_rpc *sel4_rpc_create(rpcmsg_queue_t *tx,
 				 rpcmsg_queue_t *rx,
@@ -104,6 +14,7 @@ struct sel4_rpc *sel4_rpc_create(rpcmsg_queue_t *tx,
 				 void *private)
 {
 	struct sel4_rpc *rpc;
+	int err;
 
 	BUG_ON(!tx || !rx || !doorbell);
 
@@ -112,15 +23,11 @@ struct sel4_rpc *sel4_rpc_create(rpcmsg_queue_t *tx,
 		return ERR_PTR(-ENOMEM);
 	}
 
-	spin_lock_init(&rpc->tx_lock);
-
-	rpc->tx_queue = tx;
-	rpc->rx_queue = rx;
-	rpc->doorbell = doorbell;
-	rpc->private = private;
-
-	rpcmsg_queue_init(rpc->tx_queue);
-	rpcmsg_queue_init(rpc->rx_queue);
+	err = sel4_rpc_init(rpc, rx, tx, doorbell, private);
+	if (err) {
+		kfree(rpc);
+		return ERR_PTR(-EINVAL);
+	}
 
 	return rpc;
 }
@@ -132,8 +39,7 @@ void sel4_rpc_destroy(struct sel4_rpc *rpc)
 	rpc->tx_queue = NULL;
 	rpc->rx_queue = NULL;
 	rpc->doorbell = NULL;
-	rpc->private = NULL;
+	rpc->doorbell_cookie = NULL;
 
 	kfree(rpc);
 }
-

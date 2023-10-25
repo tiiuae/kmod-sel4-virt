@@ -10,6 +10,7 @@
 
 #define SEL4_MMAP_RAM	(0)
 #define SEL4_MMAP_IOBUF (1)
+#define SEL4_MMAP_EVENT_BAR (2)
 
 static inline struct sel4_mem_map *sel4_get_map(struct sel4_vm *vm, unsigned region)
 {
@@ -20,6 +21,9 @@ static inline struct sel4_mem_map *sel4_get_map(struct sel4_vm *vm, unsigned reg
 		break;
 	case SEL4_MMAP_IOBUF:
 		map = &vm->vmm->iobuf;
+		break;
+	case SEL4_MMAP_EVENT_BAR:
+		map = &vm->vmm->event_bar;
 		break;
 	default:
 		WARN(1, "Invalid mmap region");
@@ -93,6 +97,15 @@ static const struct vm_operations_struct sel4_ram_logical_vm_ops = {
 	.fault = sel4_ram_vma_fault,
 };
 
+static vm_fault_t sel4_event_bar_vma_fault(struct vm_fault *vmf)
+{
+	return sel4_handle_vma_fault(vmf, SEL4_MMAP_EVENT_BAR);
+}
+
+static const struct vm_operations_struct sel4_event_bar_logical_vm_ops = {
+	.fault = sel4_event_bar_vma_fault,
+};
+
 static const struct vm_operations_struct *sel4_get_vm_ops(unsigned region)
 {
 	const struct vm_operations_struct *vms = NULL;
@@ -102,6 +115,9 @@ static const struct vm_operations_struct *sel4_get_vm_ops(unsigned region)
 		break;
 	case SEL4_MMAP_IOBUF:
 		vms = &sel4_iohandler_logical_vm_ops;
+		break;
+	case SEL4_MMAP_EVENT_BAR:
+		vms = &sel4_event_bar_logical_vm_ops;
 		break;
 	default:
 		WARN(1, "Invalid mmap region");
@@ -193,6 +209,11 @@ static int sel4_do_mmap(struct file *filp, struct vm_area_struct *vma, unsigned 
 out_unlock:
 	sel4_vm_unlock(vm, irqflags);
 	return rc;
+}
+
+int sel4_event_bar_mmap(struct file *filp, struct vm_area_struct *vma)
+{
+	return sel4_do_mmap(filp, vma, SEL4_MMAP_EVENT_BAR);
 }
 
 int sel4_iohandler_mmap(struct file *filp, struct vm_area_struct *vma)
