@@ -12,6 +12,11 @@
 
 #define PCI_SEL4_DEVICE_ID 0xa111
 
+#define EVENT_BAR_EMIT_REGISTER 0x0
+#define EVENT_BAR_EMIT_REGISTER_INDEX 0
+#define EVENT_BAR_CONSUME_EVENT_REGISTER 0x4
+#define EVENT_BAR_CONSUME_EVENT_REGISTER_INDEX 1
+
 /* For now we distinguish control and guest RAM region by name */
 #define SEL4_DEVICE_NAME_REGISTER_OFFSET 2
 #define SEL4_DEVICE_NAME_MAX_LEN 50
@@ -147,13 +152,13 @@ static irqreturn_t sel4_pci_irqhandler(int irq, struct sel4_vmm *vmm)
 	uint32_t *event_bar = dataport->mem[0].addr;
 	u32 val;
 
-	val = readl(&event_bar[1]);
+	val = readl(&event_bar[EVENT_BAR_CONSUME_EVENT_REGISTER_INDEX]);
 	if (val == 0) {
 		return IRQ_NONE;
 	}
 
 	// FIXME: save eventbar value
-	writel(0, &event_bar[1]);
+	writel(0, &event_bar[EVENT_BAR_CONSUME_EVENT_REGISTER_INDEX]);
 
 	return IRQ_HANDLED;
 }
@@ -161,7 +166,7 @@ static irqreturn_t sel4_pci_irqhandler(int irq, struct sel4_vmm *vmm)
 static void sel4_pci_doorbell(void *private)
 {
 	struct sel4_dataport *dataport = private;
-	((uint32_t *) dataport->mem[0].addr)[0] = 1;
+	((uint32_t *) dataport->mem[0].addr)[EVENT_BAR_EMIT_REGISTER_INDEX] = 1;
 }
 
 struct sel4_vmm_ops sel4_test_vmm_ops = {
@@ -192,8 +197,8 @@ static int sel4_pci_vmm_create(int id, struct sel4_dataport * dataports[])
 
 	vmm->iobuf = dataports[SEL4_DATAPORT_IOBUF]->mem[1];
 
-	rpc = sel4_rpc_create(tx_queue(dataports[SEL4_DATAPORT_IOBUF]->mem[1].addr),
-			      rx_queue(dataports[SEL4_DATAPORT_IOBUF]->mem[1].addr),
+	rpc = sel4_rpc_create(tx_queue(vmm->iobuf.addr),
+			      rx_queue(vmm->iobuf.addr),
 			      sel4_pci_doorbell,
 			      dataports[SEL4_DATAPORT_IOBUF]);
 	if (IS_ERR(rpc)) {
@@ -262,6 +267,9 @@ static int sel4_pci_probe(struct pci_dev *dev,
 
 	for (i = 0; i < 2; i++) {
 		dataport->mem[i].paddr = pci_resource_start(dev, i);
+		dataport->mem[i].size = pci_resource_len(dev, i);
+		dataport->mem[i].type = SEL4_MEM_IOVA;
+
 		if (!dataport->mem[i].paddr) {
 			/* We assume the first NULL bar is the end
 			 * Implying that all dataports are passed sequentially (i.e. no gaps) */
@@ -269,14 +277,12 @@ static int sel4_pci_probe(struct pci_dev *dev,
 			break;
 		}
 
-		dataport->mem[i].addr = ioremap_cache(pci_resource_start(dev, i),
-						      pci_resource_len(dev, i));
+		dataport->mem[i].addr = ioremap_cache(dataport->mem[i].paddr,
+						      dataport->mem[i].size);
 		if (!dataport->mem[i].addr) {
 			rc = 1;
 			break;
 		}
-		dataport->mem[i].size = pci_resource_len(dev, i);
-		dataport->mem[i].type = SEL4_MEM_IOVA;
 
 		last_bar = i;
 	}
