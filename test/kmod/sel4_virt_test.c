@@ -120,7 +120,7 @@ static void sel4_test_doorbell(void *private)
 		pr_info("QEMU_OP_CLR_IRQ sent\n");
 		break;
 	case QEMU_OP_IO_HANDLED: {
-		struct sel4_iohandler_buffer *iobuf = mmio_reqs(vmm->iobuf.service_vm_va);
+		struct sel4_iohandler_buffer *iobuf = mmio_reqs(vmm->iobuf.addr);
 
 		pr_info("QEMU_OP_IO_HANDLED sent\n");
 
@@ -144,11 +144,11 @@ static int sel4_test_mem_alloc(struct sel4_mem_map *mem, resource_size_t size)
 		return -EINVAL;
 
 	mem->type = SEL4_MEM_VIRTUAL;
-	mem->service_vm_va = vzalloc(size);
-	if (!mem->service_vm_va)
+	mem->addr = vzalloc(size);
+	if (!mem->addr)
 		return -ENOMEM;
 
-	mem->addr = (phys_addr_t) mem->service_vm_va;
+	mem->paddr = (phys_addr_t) mem->addr;
 	mem->size = size;
 
 	return 0;
@@ -157,10 +157,10 @@ static int sel4_test_mem_alloc(struct sel4_mem_map *mem, resource_size_t size)
 static void sel4_test_mem_free(struct sel4_mem_map *mem)
 {
 	BUG_ON(!mem);
-	vfree(mem->service_vm_va);
-	mem->service_vm_va = NULL;
+	vfree(mem->addr);
+	mem->addr = NULL;
 	mem->size = 0;
-	mem->addr = 0;
+	mem->paddr = 0;
 }
 
 struct sel4_vmm_ops sel4_test_vmm_ops = {

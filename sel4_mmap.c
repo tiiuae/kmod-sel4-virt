@@ -41,7 +41,7 @@ static vm_fault_t sel4_handle_vma_fault(struct vm_fault *vmf, unsigned region)
 	struct sel4_mem_map *map;
 	struct page *page;
 	unsigned long offset;
-	void *addr;
+	void *paddr;
 	vm_fault_t rc = 0;
 	int index;
 	unsigned long irqflags;
@@ -62,11 +62,11 @@ static vm_fault_t sel4_handle_vma_fault(struct vm_fault *vmf, unsigned region)
 
 	offset = (vmf->pgoff - index) << PAGE_SHIFT;
 
-	addr = (void *)(unsigned long) map->addr + offset;
+	paddr = (void *)(unsigned long)map->paddr + offset;
 	if (vm->vmm->ram.type == SEL4_MEM_LOGICAL)
-		page = virt_to_page(addr);
+		page = virt_to_page(paddr);
 	else
-		page = vmalloc_to_page(addr);
+		page = vmalloc_to_page(paddr);
 	get_page(page);
 	vmf->page = page;
 
@@ -142,7 +142,7 @@ static int sel4_mmap_physical(struct vm_area_struct *vma, struct sel4_mem_map *m
 	if (sel4_find_mem_index(vma))
 		return -EINVAL;
 
-	if (map->addr & ~PAGE_MASK)
+	if (map->paddr & ~PAGE_MASK)
 		return -ENODEV;
 
 	if (vma->vm_end - vma->vm_start > map->size)
@@ -152,7 +152,7 @@ static int sel4_mmap_physical(struct vm_area_struct *vma, struct sel4_mem_map *m
 
 	return remap_pfn_range(vma,
 			       vma->vm_start,
-			       map->addr >> PAGE_SHIFT,
+			       map->paddr >> PAGE_SHIFT,
 			       vma->vm_end - vma->vm_start,
 			       vma->vm_page_prot);
 }
@@ -181,7 +181,7 @@ static int sel4_do_mmap(struct file *filp, struct vm_area_struct *vma, unsigned 
 	map = sel4_get_map(vm, region);
 
 	requested_pages = vma_pages(vma);
-	actual_pages = ((map->addr & ~PAGE_MASK) +
+	actual_pages = ((map->paddr & ~PAGE_MASK) +
 			map->size + PAGE_SIZE - 1) >> PAGE_SHIFT;
 	if (requested_pages > actual_pages) {
 		rc = -EINVAL;

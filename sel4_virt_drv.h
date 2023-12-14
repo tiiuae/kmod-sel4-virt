@@ -32,8 +32,8 @@ struct sel4_vm_server {
 
 struct sel4_mem_map {
 	int		type;
-	phys_addr_t	addr;
-	void		*service_vm_va;
+	phys_addr_t	paddr;
+	void		*addr;
 	resource_size_t	size;
 };
 
