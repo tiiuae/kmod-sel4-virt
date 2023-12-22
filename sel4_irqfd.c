@@ -32,7 +32,6 @@ static void sel4_irqfd_inject(struct sel4_irqfd *irqfd)
 	/* Pulse irq */
 	sel4_vm_set_irqline(irqfd->vm, irqfd->virq, 1);
 	sel4_vm_set_irqline(irqfd->vm, irqfd->virq, 0);
-
 }
 
 /* Called with wqh->lock held and interrupts disabled */
@@ -40,12 +39,10 @@ static int sel4_irqfd_wakeywakey(wait_queue_entry_t *wait,
 				 unsigned int mode,
 				 int sync, void *key)
 {
-	struct sel4_vm *vm;
 	struct sel4_irqfd *irqfd;
 	unsigned long poll_bits = (unsigned long)key;
 
 	irqfd = container_of(wait, struct sel4_irqfd, wait);
-	vm = irqfd->vm;
 	if (poll_bits & POLLIN)
 		/* An event has been signaled, inject an interrupt */
 		sel4_irqfd_inject(irqfd);
@@ -79,17 +76,14 @@ static void sel4_irqfd_cleanup(struct sel4_irqfd *irqfd)
 static void sel4_irqfd_cleanup_work(struct work_struct *work)
 {
 	struct sel4_irqfd *irqfd;
-	struct sel4_vm *vm;
 	unsigned long irqflags;
 
 	irqfd = container_of(work, struct sel4_irqfd, cleanup);
 
-	vm = irqfd->vm;
-
 	irqflags = sel4_vm_lock(irqfd->vm);
 	if (!list_empty(&irqfd->list))
 		sel4_irqfd_cleanup(irqfd);
-	sel4_vm_unlock(vm, irqflags);
+	sel4_vm_unlock(irqfd->vm, irqflags);
 }
 
 static int sel4_irqfd_assign(struct sel4_vm *vm,
