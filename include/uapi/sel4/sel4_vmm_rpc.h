@@ -1,5 +1,5 @@
 /*
- * Copyright 2022, Technology Innovation Institute
+ * Copyright 2022, 2023, Technology Innovation Institute
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -20,9 +20,7 @@
 #define __maybe_unused __attribute__ ((unused))
 #endif
 
-#if !defined(SEL4_VMM)
 typedef unsigned long seL4_Word;
-#endif
 
 #if defined(__KERNEL__)
 #define rpc_assert(_cond) BUG_ON(!(_cond))
@@ -30,20 +28,25 @@ typedef unsigned long seL4_Word;
 #define rpc_assert assert
 #endif
 
-#ifdef SEL4_VMM
-#define IOBUF_PAGE_RECV 2
-#define IOBUF_PAGE_SEND 1
-#else
-#define IOBUF_PAGE_RECV 1
-#define IOBUF_PAGE_SEND 2
-#endif
-#define IOBUF_PAGE_MMIO 0
+#define IOBUF_NUM_PAGES             3
 
-#define iobuf_page(_iobuf, _page) (((uintptr_t)(_iobuf)) + (4096 * (_page)))
+#define IOBUF_PAGE_DRIVER_RX        1
+#define IOBUF_PAGE_DRIVER_TX        0
+#define IOBUF_PAGE_DRIVER_MMIO      2
 
-#define tx_queue(_iobuf) ((rpcmsg_queue_t *)iobuf_page((_iobuf), IOBUF_PAGE_SEND))
-#define rx_queue(_iobuf) ((rpcmsg_queue_t *)iobuf_page((_iobuf), IOBUF_PAGE_RECV))
-#define mmio_reqs(_iobuf) ((struct sel4_iohandler_buffer *)iobuf_page((_iobuf), IOBUF_PAGE_MMIO))
+#define IOBUF_PAGE_DEVICE_RX        IOBUF_PAGE_DRIVER_TX
+#define IOBUF_PAGE_DEVICE_TX        IOBUF_PAGE_DRIVER_RX
+#define IOBUF_PAGE_DEVICE_MMIO      IOBUF_PAGE_DRIVER_MMIO
+
+#define iobuf_page(_iobuf, _page)   (((uintptr_t)(_iobuf)) + (4096 * (_page)))
+
+#define driver_tx_queue(_iobuf)     ((rpcmsg_queue_t *)iobuf_page((_iobuf), IOBUF_PAGE_DRIVER_TX))
+#define driver_rx_queue(_iobuf)     ((rpcmsg_queue_t *)iobuf_page((_iobuf), IOBUF_PAGE_DRIVER_RX))
+#define driver_mmio_reqs(_iobuf)    ((struct sel4_ioreq *)iobuf_page((_iobuf), IOBUF_PAGE_DRIVER_MMIO))
+
+#define device_tx_queue(_iobuf)     ((rpcmsg_queue_t *)iobuf_page((_iobuf), IOBUF_PAGE_DEVICE_TX))
+#define device_rx_queue(_iobuf)     ((rpcmsg_queue_t *)iobuf_page((_iobuf), IOBUF_PAGE_DEVICE_RX))
+#define device_mmio_reqs(_iobuf)    ((struct sel4_ioreq *)iobuf_page((_iobuf), IOBUF_PAGE_DEVICE_MMIO))
 
 /* from VMM to QEMU */
 #define QEMU_OP_IO_HANDLED  0

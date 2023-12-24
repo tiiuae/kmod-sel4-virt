@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright 2022, Technology Innovation Institute
+ * Copyright 2022, 2023, Technology Innovation Institute
  *
  */
 
@@ -19,9 +19,6 @@
 
 #define SEL4_TEST_RPCBUF_SIZE 0x100000
 
-#define rx_queue(_rpcbuf) (((rpcmsg_queue_t *) _rpcbuf) + 0)
-#define tx_queue(_rpcbuf) (((rpcmsg_queue_t *) _rpcbuf) + 1)
-
 /* Functions for injecting ioreqs from user space */
 static int sel4_test_inject_ioreq(struct sel4_vm *vm,
 				  struct sel4_test_ioreq *inject)
@@ -34,12 +31,12 @@ static int sel4_test_inject_ioreq(struct sel4_vm *vm,
 
 	irqflags = sel4_vm_lock(vm);
 
-	if (WARN_ON(!vm->ioreq_buffer)) {
+	if (WARN_ON(!vm->mmio_reqs)) {
 		rc = -ENODEV;
 		goto out_unlock;
 	}
 
-	vm->ioreq_buffer->request_slots[inject->slot] = inject->ioreq;
+	vm->mmio_reqs[inject->slot] = inject->ioreq;
 	smp_mb();
 
 out_unlock:
@@ -120,7 +117,7 @@ static void sel4_test_doorbell(void *private)
 		pr_info("QEMU_OP_CLR_IRQ sent\n");
 		break;
 	case QEMU_OP_IO_HANDLED: {
-		struct sel4_iohandler_buffer *iobuf = mmio_reqs(vmm->iobuf.addr);
+		struct sel4_ioreq *mmio_reqs = device_mmio_reqs(vmm->iobuf.addr);
 
 		pr_info("QEMU_OP_IO_HANDLED sent\n");
 
@@ -128,7 +125,7 @@ static void sel4_test_doorbell(void *private)
 			break;
 		}
 
-		smp_store_release(&iobuf->request_slots[msg->mr1].state,
+		smp_store_release(&mmio_reqs[msg->mr1].state,
 				  SEL4_IOREQ_STATE_FREE);
 		break;
 	}
@@ -200,8 +197,8 @@ static struct sel4_vmm *sel4_test_vmm_create(struct sel4_vm_params params)
 	if (rc)
 		goto free_iobuf;
 
-	rpc = sel4_rpc_create(tx_queue(rpc_buffer),
-			      rx_queue(rpc_buffer),
+	rpc = sel4_rpc_create(device_tx_queue(rpc_buffer),
+			      device_rx_queue(rpc_buffer),
 			      sel4_test_doorbell,
 			      vmm);
 	if (IS_ERR(rpc)) {

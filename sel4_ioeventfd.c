@@ -163,7 +163,7 @@ static int sel4_ioeventfd_deassign(struct sel4_vm *vm,
 
 int sel4_vm_ioeventfd_process(struct sel4_vm *vm, int slot)
 {
-	struct sel4_ioreq *ioreq = vm->ioreq_buffer->request_slots + slot;
+	struct sel4_ioreq *ioreq = vm->mmio_reqs + slot;
 	struct sel4_ioeventfd *ioeventfd;
 	int rc = SEL4_IOEVENTFD_NONE;
 

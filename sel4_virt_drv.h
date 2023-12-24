@@ -80,7 +80,7 @@ struct sel4_vm {
 	refcount_t		refcount;
 
 	wait_queue_head_t	ioreq_wait;
-	struct sel4_iohandler_buffer *ioreq_buffer;
+	struct sel4_ioreq	*mmio_reqs;
 	DECLARE_BITMAP(ioreq_map, SEL4_MAX_IOREQS);
 
 	struct list_head	ioeventfds;
@@ -116,7 +116,7 @@ static inline int sel4_start_vm(struct sel4_vm *vm)
 		goto out_unlock;
 	}
 
-	if (!vm->ioreq_buffer) {
+	if (!vm->mmio_reqs) {
 		pr_notice("no ioreq handler");
 		rc = -EBADFD;
 		goto out_unlock;

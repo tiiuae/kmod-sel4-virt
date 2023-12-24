@@ -197,8 +197,8 @@ static int sel4_pci_vmm_create(int id, struct sel4_dataport * dataports[])
 
 	vmm->iobuf = dataports[SEL4_DATAPORT_IOBUF]->mem[1];
 
-	rpc = sel4_rpc_create(tx_queue(vmm->iobuf.addr),
-			      rx_queue(vmm->iobuf.addr),
+	rpc = sel4_rpc_create(device_tx_queue(vmm->iobuf.addr),
+			      device_rx_queue(vmm->iobuf.addr),
 			      sel4_pci_doorbell,
 			      dataports[SEL4_DATAPORT_IOBUF]);
 	if (IS_ERR(rpc)) {
