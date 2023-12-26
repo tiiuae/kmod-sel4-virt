@@ -7,22 +7,8 @@
 #define __SEL4_RPC_H
 
 #include <linux/types.h>
-#include <linux/spinlock.h>
 #include "sel4/sel4_vmm_rpc.h"
 #include "sel4_virt_drv.h"
-
-struct sel4_rpc {
-	spinlock_t tx_lock;
-	rpcmsg_queue_t *tx_queue;
-	rpcmsg_queue_t *rx_queue;
-	void (*doorbell)(void *private);
-	void *private;
-};
-
-#define mr0(_vcpu, _dir, _pcidev) \
-	((((_dir) == SEL4_IO_DIR_WRITE) ? QEMU_OP_WRITE : QEMU_OP_READ) | \
-	((_vcpu) << QEMU_VCPU_SHIFT) | \
-	((_pcidev)  << QEMU_PCIDEV_SHIFT))
 
 int sel4_rpc_start_vm(struct sel4_rpc *rpc);
 int sel4_rpc_create_vpci_device(struct sel4_rpc *rpc, u32 pcidev);

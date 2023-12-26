@@ -6,6 +6,7 @@
 #pragma once
 
 #ifdef __KERNEL__
+#include <linux/atomic.h>
 #include <linux/string.h>
 #include <linux/kernel.h>
 #include <linux/types.h>
@@ -21,6 +22,15 @@
 #endif
 
 typedef unsigned long seL4_Word;
+
+#define atomic_load_acquire(ptr) __atomic_load_n(ptr, __ATOMIC_ACQUIRE)
+#define atomic_store_release(ptr, i)  __atomic_store_n(ptr, i, __ATOMIC_RELEASE)
+
+#ifndef __KERNEL__
+#define atomic_compare_and_swap(_p, _o, _n) __sync_bool_compare_and_swap(_p, _o, _n)
+#else
+#define atomic_compare_and_swap(_p, _o, _n) (arch_cmpxchg((_p), (_o), (_n)) == (_o))
+#endif
 
 #if defined(__KERNEL__)
 #define rpc_assert(_cond) BUG_ON(!(_cond))
@@ -48,6 +58,40 @@ typedef unsigned long seL4_Word;
 #define device_rx_queue(_iobuf)     ((rpcmsg_queue_t *)iobuf_page((_iobuf), IOBUF_PAGE_DEVICE_RX))
 #define device_mmio_reqs(_iobuf)    ((struct sel4_ioreq *)iobuf_page((_iobuf), IOBUF_PAGE_DEVICE_MMIO))
 
+#ifndef MASK
+#define MASK(_n)                        ((1UL << (_n)) - 1)
+#endif
+
+#define BIT_FIELD_MASK(_name)           (MASK(_name ## _WIDTH) << (_name ## _SHIFT))
+
+#define BIT_FIELD_CLR_ALL(_v, _name)    ((_v) & ~BIT_FIELD_MASK(_name))
+#define BIT_FIELD_SET_ALL(_v, _name)    ((_v) | BIT_FIELD_MASK(_name))
+
+#define BIT_FIELD_GET(_v, _name)        (((_v) >> (_name ## _SHIFT)) & MASK(_name ## _WIDTH))
+#define BIT_FIELD_SET(_v, _name, _n)    ((BIT_FIELD_CLR_ALL(_v, _name)) | ((((seL4_Word)(_n)) << (_name ## _SHIFT)) & BIT_FIELD_MASK(_name)))
+
+#define RPCMSG_STATE_FREE               0
+#define RPCMSG_STATE_DRIVER             1
+#define RPCMSG_STATE_DEVICE_KERNEL      2
+#define RPCMSG_STATE_DEVICE_USER        3
+#define RPCMSG_STATE_ERROR              ~0U
+
+#define rpcmsg_state_ptr(_msg_ptr)          ((uint32_t *)&(_msg_ptr)->mr0)
+#define rpcmsg_state_get(_msg_ptr)          atomic_load_acquire(rpcmsg_state_ptr(_msg_ptr))
+#define rpcmsg_state_set(_msg_ptr, _state)  atomic_store_release(rpcmsg_state_ptr(_msg_ptr), _state)
+
+#define RPC_MR0_STATE_WIDTH             32
+#define RPC_MR0_STATE_SHIFT             0
+
+#define RPC_MR0_OP_WIDTH                6
+#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+#define RPC_MR0_OP_SHIFT                32
+#elif __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+#define RPC_MR0_OP_SHIFT                0
+#else
+#error Cannot determinate endianness
+#endif
+
 /* from VMM to QEMU */
 #define QEMU_OP_IO_HANDLED  0
 #define QEMU_OP_PUTC_LOG    2
@@ -59,9 +103,10 @@ typedef unsigned long seL4_Word;
 #define QEMU_OP_REGISTER_PCI_DEV    19
 #define QEMU_OP_MMIO_REGION_CONFIG  20
 
-#define QEMU_OP_MASK        0xffULL
-#define QEMU_OP_SHIFT       0
-#define QEMU_OP(__x__)      ((unsigned int)(((__x__) & QEMU_OP_MASK) >> QEMU_OP_SHIFT))
+#define QEMU_OP(_mr0)       BIT_FIELD_GET(_mr0, RPC_MR0_OP)
+
+#define RPC_MR0_COMMON_WIDTH            (RPC_MR0_OP_WIDTH + RPC_MR0_OP_SHIFT)
+#define RPC_MR0_COMMON_SHIFT            0
 
 #define RPCMSG_BUFFER_SIZE  32
 
@@ -73,17 +118,106 @@ typedef struct {
 } rpcmsg_t;
 
 typedef struct {
-    uint32_t head;
-    uint32_t tail;
-    uint32_t rsvd[2];
     rpcmsg_t data[RPCMSG_BUFFER_SIZE];
+    seL4_Word head;
+    seL4_Word tail;
 } rpcmsg_queue_t;
+
+typedef struct sel4_rpc {
+    rpcmsg_queue_t *tx_queue;
+    rpcmsg_queue_t *rx_queue;
+    void (*doorbell)(void *doorbell_cookie);
+    void *doorbell_cookie;
+} sel4_rpc_t;
 
 #define QUEUE_NEXT(_i) (((_i) + 1) & (RPCMSG_BUFFER_SIZE - 1))
 
 __maybe_unused static void rpcmsg_queue_init(rpcmsg_queue_t *q)
 {
     memset(q, 0, sizeof(*q));
+}
+
+extern const unsigned int my_rpcmsg_state;
+
+static inline
+int rpcmsg_queue_iterate(rpcmsg_queue_t *q,
+                         unsigned int (*fn)(rpcmsg_t *msg, void *cookie),
+                         void *cookie)
+{
+    rpcmsg_t *msg;
+    unsigned int state;
+    unsigned int head;
+
+    do {
+        head = atomic_load_acquire(&q->head);
+        if (head == q->tail) {
+            break;
+        }
+
+        msg = q->data + head;
+
+        state = rpcmsg_state_get(msg);
+        if (state != RPCMSG_STATE_FREE) {
+            if (state != my_rpcmsg_state) {
+                break;
+            }
+
+            state = fn(msg, cookie);
+            if (state == RPCMSG_STATE_ERROR) {
+                return -1;
+            }
+        }
+
+        rpcmsg_state_set(msg, state);
+        if (state == RPCMSG_STATE_FREE) {
+            head = QUEUE_NEXT(head);
+        }
+
+        atomic_store_release(&q->head, head);
+    } while (state == RPCMSG_STATE_FREE);
+
+    return 0;
+}
+
+static inline void plat_yield(void)
+{
+    /* TODO */
+}
+
+static inline rpcmsg_t *rpcmsg_new(rpcmsg_queue_t *q)
+{
+    unsigned int tail, next;
+
+    rpc_assert(q);
+
+    do {
+        for (;;) {
+            tail = q->tail;
+            next = QUEUE_NEXT(tail);
+
+            if (next != q->head) {
+                break;
+            }
+
+            /* messages are produced faster than they are consumed */
+            plat_yield();
+        }
+
+        /* if there are multiple writers, only one of those will succeed doing
+         * CAS on state below -- the others will keep looping until queue's tail
+         * is updated by that specific writer which broke out of loop -- the
+         * process will repeat inductively until only one writer is left.
+         */
+    } while (!atomic_compare_and_swap(rpcmsg_state_ptr(q->data + tail),
+                                      RPCMSG_STATE_FREE,
+                                      my_rpcmsg_state));
+
+    /* since we modified state of message pointed by tail, we want that
+     * store to finish before updating tail.
+     */
+    atomic_store_release(&q->tail, next);
+
+    return q->data + tail;
 }
 
 static inline bool rpcmsg_queue_full(rpcmsg_queue_t *q)
@@ -96,32 +230,60 @@ static inline bool rpcmsg_queue_empty(rpcmsg_queue_t *q)
     return q->tail == q->head;
 }
 
-static inline rpcmsg_t *rpcmsg_queue_head(rpcmsg_queue_t *q)
+static inline int sel4_rpc_doorbell(sel4_rpc_t *rpc)
 {
-    return rpcmsg_queue_empty(q) ? NULL : (q->data + q->head);
+    if (!rpc || !rpc->doorbell) {
+        return -1;
+    }
+
+    rpc->doorbell(rpc->doorbell_cookie);
+
+    return 0;
 }
 
-static inline rpcmsg_t *rpcmsg_queue_tail(rpcmsg_queue_t *q)
+static inline int rpcmsg_send(sel4_rpc_t *rpc, unsigned int op,
+                              seL4_Word mr0, seL4_Word mr1,
+                              seL4_Word mr2, seL4_Word mr3)
 {
+    rpcmsg_t *msg = rpcmsg_new(rpc->tx_queue);
 
-    return rpcmsg_queue_full(q) ? NULL : (q->data + q->tail);
+    rpc_assert(msg);
+    rpc_assert(rpcmsg_state_get(msg) == my_rpcmsg_state);
+
+    mr0 = BIT_FIELD_SET(mr0, RPC_MR0_STATE, rpcmsg_state_get(msg));
+    mr0 = BIT_FIELD_SET(mr0, RPC_MR0_OP, op);
+
+    msg->mr0 = mr0;
+    msg->mr1 = mr1;
+    msg->mr2 = mr2;
+    msg->mr3 = mr3;
+
+    if (my_rpcmsg_state == RPCMSG_STATE_DRIVER) {
+        rpcmsg_state_set(msg, RPCMSG_STATE_DEVICE_KERNEL);
+    } else {
+        rpcmsg_state_set(msg, RPCMSG_STATE_DRIVER);
+    }
+
+    return sel4_rpc_doorbell(rpc);
 }
 
-static inline void rpcmsg_queue_advance_head(rpcmsg_queue_t *q)
+static inline int sel4_rpc_init(sel4_rpc_t *rpc, rpcmsg_queue_t *rx,
+                                rpcmsg_queue_t *tx,
+                                void (*doorbell)(void *doorbell_cookie),
+                                void *doorbell_cookie)
 {
-    rpc_assert(!rpcmsg_queue_empty(q));
-    q->head = QUEUE_NEXT(q->head);
-}
+    if (!rpc || !rx || !tx || !doorbell) {
+        return -1;
+    }
 
-static inline void rpcmsg_queue_advance_tail(rpcmsg_queue_t *q)
-{
-    rpc_assert((!rpcmsg_queue_full(q)));
-    q->tail = QUEUE_NEXT(q->tail);
-}
+    rpc->rx_queue = rx;
+    rpc->tx_queue = tx;
+    rpc->doorbell = doorbell;
+    rpc->doorbell_cookie = doorbell_cookie;
 
-static inline void rpcmsg_queue_enqueue(rpcmsg_queue_t *q, rpcmsg_t *msg)
-{
-    rpc_assert(!rpcmsg_queue_full(q));
-    memcpy(q->data + q->tail, msg, sizeof(*msg));
-    q->tail = QUEUE_NEXT(q->tail);
+    /* note that we do not initialize the queues themselves -- they are
+     * initialized statically on boot and dynamically on VM reboot
+     */
+
+    return 0;
 }

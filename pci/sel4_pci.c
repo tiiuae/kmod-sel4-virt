@@ -148,7 +148,7 @@ static bool dataports_active(int vmm_id)
 static irqreturn_t sel4_pci_irqhandler(int irq, struct sel4_vmm *vmm)
 {
 	struct sel4_rpc *rpc = vmm->private;
-	struct sel4_dataport *dataport = rpc->private;
+	struct sel4_dataport *dataport = rpc->doorbell_cookie;
 	uint32_t *event_bar = dataport->mem[0].addr;
 	u32 val;
 

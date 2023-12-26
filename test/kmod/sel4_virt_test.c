@@ -13,7 +13,6 @@
 
 #include "sel4_virt_drv.h"
 #include "sel4_rpc.h"
-#include "sel4/sel4_vmm_rpc.h"
 
 #include "sel4_virt_test.h"
 

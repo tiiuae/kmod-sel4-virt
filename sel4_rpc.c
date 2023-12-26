@@ -9,31 +9,23 @@
 #include "sel4_rpc.h"
 #include "sel4/sel4_virt.h"
 
-static void sel4_rpc_doorbell_ring(struct sel4_rpc *rpc)
-{
-	BUG_ON(!rpc || !rpc->doorbell);
-	rpc->doorbell(rpc->private);
-}
-
 static int sel4_rpc_send_msg(struct sel4_rpc *rpc, const rpcmsg_t *msg)
 {
-	rpcmsg_t *new;
+	int err;
 
 	BUG_ON(!rpc || !rpc->tx_queue || !msg);
 
-	spin_lock(&rpc->tx_lock);
-	new = rpcmsg_queue_tail(rpc->tx_queue);
-	if (!new) {
-		pr_err("TX queue full\n");
-		spin_unlock(&rpc->tx_lock);
+	rpc = rpcmsg_compose(rpc, msg->mr0, 0, msg->mr1, msg->mr2, msg->mr3);
+	if (!rpc) {
+		pr_err("rpcmsg_compose() failed");
 		return -EBUSY;
 	}
 
-	*new = *msg;
-	smp_mb();	// smb_wmb?
-	rpcmsg_queue_advance_tail(rpc->tx_queue);
-	sel4_rpc_doorbell_ring(rpc);
-	spin_unlock(&rpc->tx_lock);
+	err = sel4_rpc_doorbell(rpc);
+	if (err) {
+		pr_err("sel4_rpc_doorbell() failed");
+		return -EBUSY;
+	}
 
 	return 0;
 }
@@ -120,6 +112,7 @@ struct sel4_rpc *sel4_rpc_create(rpcmsg_queue_t *tx,
 				 void *private)
 {
 	struct sel4_rpc *rpc;
+	int err;
 
 	BUG_ON(!tx || !rx || !doorbell);
 
@@ -128,15 +121,12 @@ struct sel4_rpc *sel4_rpc_create(rpcmsg_queue_t *tx,
 		return ERR_PTR(-ENOMEM);
 	}
 
-	spin_lock_init(&rpc->tx_lock);
-
-	rpc->tx_queue = tx;
-	rpc->rx_queue = rx;
-	rpc->doorbell = doorbell;
-	rpc->private = private;
-
-	rpcmsg_queue_init(rpc->tx_queue);
-	rpcmsg_queue_init(rpc->rx_queue);
+	err = sel4_rpc_init(rpc, rx, tx, doorbell, private);
+	if (err) {
+		pr_err("sel4_rpc_init() failed");
+		kfree(rpc);
+		return ERR_PTR(-EINVAL);
+	}
 
 	return rpc;
 }
@@ -145,11 +135,5 @@ void sel4_rpc_destroy(struct sel4_rpc *rpc)
 {
 	BUG_ON(!rpc);
 
-	rpc->tx_queue = NULL;
-	rpc->rx_queue = NULL;
-	rpc->doorbell = NULL;
-	rpc->private = NULL;
-
 	kfree(rpc);
 }
-

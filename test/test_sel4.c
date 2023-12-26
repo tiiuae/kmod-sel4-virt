@@ -22,11 +22,6 @@
 #include "sel4_virt_test.h"
 
 #define TEST
-#include "sel4/sel4_vmm_rpc.h"
-
-
-#define atomic_load(_ptr) __atomic_load_n((_ptr), __ATOMIC_ACQUIRE)
-#define atomic_store(_ptr, _data)  __atomic_store_n((_ptr), (_data), __ATOMIC_RELEASE);
 
 #define VM_RAM_SIZE (2 << 20)
 
