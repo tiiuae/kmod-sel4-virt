@@ -147,8 +147,7 @@ static bool dataports_active(int vmm_id)
 
 static irqreturn_t sel4_pci_irqhandler(int irq, struct sel4_vmm *vmm)
 {
-	struct sel4_rpc *rpc = vmm->private;
-	struct sel4_dataport *dataport = rpc->doorbell_cookie;
+	struct sel4_dataport *dataport = vmm->rpc.doorbell_cookie;
 	uint32_t *event_bar = dataport->mem[0].addr;
 	u32 val;
 
@@ -182,7 +181,6 @@ struct sel4_vmm_ops sel4_test_vmm_ops = {
 static int sel4_pci_vmm_create(int id, struct sel4_dataport * dataports[])
 {
 	struct sel4_vmm *vmm;
-	struct sel4_rpc *rpc;
 	int rc = 0;
 
 	vmm = sel4_vmm_alloc(sel4_test_vmm_ops);
@@ -197,17 +195,17 @@ static int sel4_pci_vmm_create(int id, struct sel4_dataport * dataports[])
 
 	vmm->iobuf = dataports[SEL4_DATAPORT_IOBUF]->mem[1];
 
-	rpc = sel4_rpc_create(device_tx_queue(vmm->iobuf.addr),
-			      device_rx_queue(vmm->iobuf.addr),
-			      sel4_pci_doorbell,
-			      dataports[SEL4_DATAPORT_IOBUF]);
-	if (IS_ERR(rpc)) {
-		rc = PTR_ERR(rpc);
+	rc = sel4_rpc_init(&vmm->rpc,
+			   device_rx_queue(vmm->iobuf.addr),
+			   device_tx_queue(vmm->iobuf.addr),
+			   sel4_pci_doorbell,
+			   dataports[SEL4_DATAPORT_IOBUF]);
+	if (rc) {
+		rc = -EINVAL;
 		goto free_vmm;
 	}
 
 	vmm->ram = dataports[SEL4_DATAPORT_RAM]->mem[1];
-	vmm->private = rpc;
 
 	dataports[SEL4_DATAPORT_IOBUF]->vmm_id = vmm->id;
 	dataports[SEL4_DATAPORT_RAM]->vmm_id = vmm->id;
@@ -216,13 +214,8 @@ static int sel4_pci_vmm_create(int id, struct sel4_dataport * dataports[])
 	dataports[SEL4_DATAPORT_RAM]->state = SEL4_DATAPORT_ACTIVE;
 
 	rc = sel4_vmmpool_add(vmm);
-	if (rc)
-		goto destroy_rpc;
 
 	return rc;
-
-destroy_rpc:
-	sel4_rpc_destroy(rpc);
 
 free_vmm:
 	kfree(vmm);
@@ -232,10 +225,9 @@ free_vmm:
 
 static void sel4_pci_vmm_destroy(struct sel4_vmm *vmm)
 {
-	if (WARN_ON(!vmm || !vmm->private))
+	if (WARN_ON(!vmm))
 		return;
 
-	sel4_rpc_destroy(vmm->private);
 	kfree(vmm);
 }
 

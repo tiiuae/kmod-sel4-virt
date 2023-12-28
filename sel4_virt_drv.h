@@ -15,6 +15,7 @@
 #include <linux/wait.h>
 
 #include "sel4/sel4_virt.h"
+#include <sel4/sel4_vmm_rpc.h>
 
 #define SEL4_MEM_IOVA		0
 #define SEL4_MEM_LOGICAL	1
@@ -67,7 +68,7 @@ struct sel4_vmm {
 	struct sel4_mem_map	iobuf;
 	struct sel4_mem_map	ram;
 	struct sel4_vm		*vm;
-	void			*private;
+	sel4_rpc_t		rpc;
 };
 
 /* Indicates whether ioeventfd processed the ioreq */
