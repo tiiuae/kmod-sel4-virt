@@ -267,6 +267,40 @@ static inline int rpcmsg_send(sel4_rpc_t *rpc, unsigned int op,
     return sel4_rpc_doorbell(rpc);
 }
 
+static inline int driver_req_start_vm(sel4_rpc_t *rpc)
+{
+    return rpcmsg_send(rpc, QEMU_OP_START_VM, 0, 0, 0, 0);
+}
+
+static inline int driver_req_create_vpci_device(sel4_rpc_t *rpc,
+                                                seL4_Word pcidev)
+{
+    return rpcmsg_send(rpc, QEMU_OP_REGISTER_PCI_DEV, 0, pcidev, 0, 0);
+}
+
+static inline int driver_req_set_irqline(sel4_rpc_t *rpc, seL4_Word irq)
+{
+    return rpcmsg_send(rpc, QEMU_OP_SET_IRQ, 0, irq, 0, 0);
+}
+
+static inline int driver_req_clear_irqline(sel4_rpc_t *rpc, seL4_Word irq)
+{
+    return rpcmsg_send(rpc, QEMU_OP_CLR_IRQ, 0, irq, 0, 0);
+}
+
+
+static inline int driver_ack_mmio_finish(sel4_rpc_t *rpc, unsigned int slot)
+{
+    return rpcmsg_send(rpc, QEMU_OP_IO_HANDLED, 0, slot, 0, 0);
+}
+
+static inline int driver_req_mmio_region_config(sel4_rpc_t *rpc, uintptr_t gpa,
+                                                size_t size,
+                                                unsigned long flags)
+{
+    return rpcmsg_send(rpc, QEMU_OP_MMIO_REGION_CONFIG, 0, gpa, size, flags);
+}
+
 static inline int sel4_rpc_init(sel4_rpc_t *rpc, rpcmsg_queue_t *rx,
                                 rpcmsg_queue_t *tx,
                                 void (*doorbell)(void *doorbell_cookie),
