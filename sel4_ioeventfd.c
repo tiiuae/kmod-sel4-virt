@@ -161,38 +161,39 @@ static int sel4_ioeventfd_deassign(struct sel4_vm *vm,
 	return 0;
 }
 
-int sel4_vm_ioeventfd_process(struct sel4_vm *vm, int slot)
+unsigned int rpc_process_mmio(struct sel4_vm *vm, rpcmsg_t *req)
 {
-	struct sel4_ioreq *ioreq = sel4_vm_mmio_reqs(vm) + slot;
 	struct sel4_ioeventfd *ioeventfd;
-	int rc = SEL4_IOEVENTFD_NONE;
+	unsigned int direction;
+	unsigned int addr_space;
+	unsigned int len;
+	unsigned int slot;
+	seL4_Word addr;
+	seL4_Word data;
+
+	direction = BIT_FIELD_GET(req->mr0, RPC_MR0_MMIO_DIRECTION);
+	addr_space = BIT_FIELD_GET(req->mr0, RPC_MR0_MMIO_ADDR_SPACE);
+	len = BIT_FIELD_GET(req->mr0, RPC_MR0_MMIO_LENGTH);
+	slot = BIT_FIELD_GET(req->mr0, RPC_MR0_MMIO_SLOT);
+	addr = req->mr1;
+	data = req->mr2;
+
+	if (direction == SEL4_IO_DIR_READ) {
+		/* let userspace process reads */
+		return RPCMSG_STATE_DEVICE_USER;
+	}
 
 	lockdep_assert_held(&vm->lock);
 
-	if (WARN_ON(!SEL4_IOREQ_SLOT_VALID(slot))) {
-		return -EINVAL;
+	ioeventfd = sel4_ioeventfd_match(vm, addr_space, addr, len, data);
+	if (!ioeventfd) {
+		return RPCMSG_STATE_DEVICE_USER;
 	}
 
-	if (ioreq->direction == SEL4_IO_DIR_READ) {
-		/* let userspace process reads */
-		return SEL4_IOEVENTFD_NONE;
-	}
+	/* signal the eventfd and mark request as complete */
+	eventfd_signal(ioeventfd->eventfd, 1);
 
-	ioeventfd = sel4_ioeventfd_match(vm, ioreq->addr_space, ioreq->addr,
-					 ioreq->len, ioreq->data);
-	if (ioeventfd) {
-		/* signal the eventfd and mark request as complete */
-		eventfd_signal(ioeventfd->eventfd, 1);
-		smp_store_release(&ioreq->state, SEL4_IOREQ_STATE_COMPLETE);
-
-		rc = sel4_vm_notify_io_handled(vm, slot);
-		if (rc)
-			return rc;
-
-		return SEL4_IOEVENTFD_PROCESSED;
-	}
-
-	return rc;
+	return driver_ack_mmio_finish(&vm->vmm->rpc, slot, 0) ? RPCMSG_STATE_FREE : RPCMSG_STATE_ERROR;
 }
 
 int sel4_vm_ioeventfd_config(struct sel4_vm *vm,

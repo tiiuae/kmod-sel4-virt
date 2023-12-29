@@ -1,5 +1,5 @@
 /*
- * Copyright 2022, 2023, Technology Innovation Institute
+ * Copyright 2022, 2023, 2024, Technology Innovation Institute
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -38,25 +38,21 @@ typedef unsigned long seL4_Word;
 #define rpc_assert assert
 #endif
 
-#define IOBUF_NUM_PAGES             3
+#define IOBUF_NUM_PAGES             2
 
 #define IOBUF_PAGE_DRIVER_RX        1
 #define IOBUF_PAGE_DRIVER_TX        0
-#define IOBUF_PAGE_DRIVER_MMIO      2
 
 #define IOBUF_PAGE_DEVICE_RX        IOBUF_PAGE_DRIVER_TX
 #define IOBUF_PAGE_DEVICE_TX        IOBUF_PAGE_DRIVER_RX
-#define IOBUF_PAGE_DEVICE_MMIO      IOBUF_PAGE_DRIVER_MMIO
 
 #define iobuf_page(_iobuf, _page)   (((uintptr_t)(_iobuf)) + (4096 * (_page)))
 
 #define driver_tx_queue(_iobuf)     ((rpcmsg_queue_t *)iobuf_page((_iobuf), IOBUF_PAGE_DRIVER_TX))
 #define driver_rx_queue(_iobuf)     ((rpcmsg_queue_t *)iobuf_page((_iobuf), IOBUF_PAGE_DRIVER_RX))
-#define driver_mmio_reqs(_iobuf)    ((struct sel4_ioreq *)iobuf_page((_iobuf), IOBUF_PAGE_DRIVER_MMIO))
 
 #define device_tx_queue(_iobuf)     ((rpcmsg_queue_t *)iobuf_page((_iobuf), IOBUF_PAGE_DEVICE_TX))
 #define device_rx_queue(_iobuf)     ((rpcmsg_queue_t *)iobuf_page((_iobuf), IOBUF_PAGE_DEVICE_RX))
-#define device_mmio_reqs(_iobuf)    ((struct sel4_ioreq *)iobuf_page((_iobuf), IOBUF_PAGE_DEVICE_MMIO))
 
 #ifndef MASK
 #define MASK(_n)                        ((1UL << (_n)) - 1)
@@ -93,7 +89,7 @@ typedef unsigned long seL4_Word;
 #endif
 
 /* from VMM to QEMU */
-#define QEMU_OP_IO_HANDLED  0
+#define QEMU_OP_MMIO        0
 #define QEMU_OP_PUTC_LOG    2
 
 /* from QEMU to VMM */
@@ -107,6 +103,31 @@ typedef unsigned long seL4_Word;
 
 #define RPC_MR0_COMMON_WIDTH            (RPC_MR0_OP_WIDTH + RPC_MR0_OP_SHIFT)
 #define RPC_MR0_COMMON_SHIFT            0
+
+/************************* defines for QEMU_OP_MMIO *************************/
+
+#define RPC_MR0_MMIO_SLOT_WIDTH         6
+#define RPC_MR0_MMIO_SLOT_SHIFT         (RPC_MR0_COMMON_WIDTH + RPC_MR0_COMMON_SHIFT)
+
+#define RPC_MR0_MMIO_DIRECTION_WIDTH    1
+#define RPC_MR0_MMIO_DIRECTION_SHIFT    (RPC_MR0_MMIO_SLOT_WIDTH + RPC_MR0_MMIO_SLOT_SHIFT)
+
+#define RPC_MR0_MMIO_DIRECTION_READ     0
+#define RPC_MR0_MMIO_DIRECTION_WRITE    1
+
+#define SEL4_IO_DIR_READ                RPC_MR0_MMIO_DIRECTION_READ
+#define SEL4_IO_DIR_WRITE               RPC_MR0_MMIO_DIRECTION_WRITE
+
+#define RPC_MR0_MMIO_ADDR_SPACE_WIDTH   8
+#define RPC_MR0_MMIO_ADDR_SPACE_SHIFT   (RPC_MR0_MMIO_DIRECTION_WIDTH + RPC_MR0_MMIO_DIRECTION_SHIFT)
+
+#define AS_GLOBAL                       MASK(RPC_MR0_MMIO_ADDR_SPACE_WIDTH)
+#define AS_PCIDEV(__pcidev)             (__pcidev)
+
+#define RPC_MR0_MMIO_LENGTH_WIDTH       4
+#define RPC_MR0_MMIO_LENGTH_SHIFT       (RPC_MR0_MMIO_ADDR_SPACE_WIDTH + RPC_MR0_MMIO_ADDR_SPACE_SHIFT)
+
+/*****************************************************************************/
 
 #define RPCMSG_BUFFER_SIZE  32
 
@@ -232,11 +253,13 @@ static inline bool rpcmsg_queue_empty(rpcmsg_queue_t *q)
 
 static inline int sel4_rpc_doorbell(sel4_rpc_t *rpc)
 {
-    if (!rpc || !rpc->doorbell) {
+    if (!rpc || !rpc->tx_queue || !rpc->doorbell) {
         return -1;
     }
 
-    rpc->doorbell(rpc->doorbell_cookie);
+    if (!rpcmsg_queue_empty(rpc->tx_queue)) {
+        rpc->doorbell(rpc->doorbell_cookie);
+    }
 
     return 0;
 }
@@ -288,10 +311,13 @@ static inline int driver_req_clear_irqline(sel4_rpc_t *rpc, seL4_Word irq)
     return rpcmsg_send(rpc, QEMU_OP_CLR_IRQ, 0, irq, 0, 0);
 }
 
-
-static inline int driver_ack_mmio_finish(sel4_rpc_t *rpc, unsigned int slot)
+static inline int driver_ack_mmio_finish(sel4_rpc_t *rpc, unsigned int slot, seL4_Word data)
 {
-    return rpcmsg_send(rpc, QEMU_OP_IO_HANDLED, 0, slot, 0, 0);
+    seL4_Word mr0 = 0;
+
+    mr0 = BIT_FIELD_SET(mr0, RPC_MR0_MMIO_SLOT, slot);
+
+    return rpcmsg_send(rpc, QEMU_OP_MMIO, mr0, 0, data, 0);
 }
 
 static inline int driver_req_mmio_region_config(sel4_rpc_t *rpc, uintptr_t gpa,
@@ -299,6 +325,24 @@ static inline int driver_req_mmio_region_config(sel4_rpc_t *rpc, uintptr_t gpa,
                                                 unsigned long flags)
 {
     return rpcmsg_send(rpc, QEMU_OP_MMIO_REGION_CONFIG, 0, gpa, size, flags);
+}
+
+static inline int device_req_mmio_start(sel4_rpc_t *rpc, unsigned int direction,
+                                  unsigned int addr_space, unsigned int slot,
+                                  seL4_Word addr, seL4_Word len, seL4_Word data)
+{
+    seL4_Word mr0 = 0;
+    seL4_Word mr1 = 0;
+    seL4_Word mr2 = 0;
+
+    mr0 = BIT_FIELD_SET(mr0, RPC_MR0_MMIO_DIRECTION, direction);
+    mr0 = BIT_FIELD_SET(mr0, RPC_MR0_MMIO_ADDR_SPACE, addr_space);
+    mr0 = BIT_FIELD_SET(mr0, RPC_MR0_MMIO_LENGTH, len);
+    mr0 = BIT_FIELD_SET(mr0, RPC_MR0_MMIO_SLOT, slot);
+    mr1 = addr;
+    mr2 = data;
+
+    return rpcmsg_send(rpc, QEMU_OP_MMIO, mr0, mr1, mr2, 0);
 }
 
 static inline int sel4_rpc_init(sel4_rpc_t *rpc, rpcmsg_queue_t *rx,

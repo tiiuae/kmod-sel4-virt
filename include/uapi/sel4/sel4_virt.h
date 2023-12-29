@@ -56,6 +56,5 @@ struct sel4_irqfd_config {
 
 #define SEL4_CREATE_IO_HANDLER	_IOW(SEL4_IOCTL, 0x30, __u64)
 #define SEL4_WAIT_IO		_IO(SEL4_IOCTL, 0x31)
-#define SEL4_NOTIFY_IO_HANDLED	_IOW(SEL4_IOCTL, 0x32, __u64)
 
 #endif /* __SEL4_VIRT_H */

@@ -73,18 +73,12 @@ struct sel4_vm {
 	refcount_t		refcount;
 
 	wait_queue_head_t	ioreq_wait;
-	DECLARE_BITMAP(ioreq_map, SEL4_MAX_IOREQS);
 
 	struct list_head	ioeventfds;
 	struct list_head	irqfds;
 
 	struct sel4_vmm		*vmm;
 };
-
-static inline struct sel4_ioreq *sel4_vm_mmio_reqs(struct sel4_vm *vm)
-{
-	return device_mmio_reqs(vm->vmm->maps[SEL4_MEM_MAP_IOBUF].addr);
-}
 
 static inline void sel4_vmm_mem_map_set(struct sel4_vmm *vmm,
 					unsigned int index,
@@ -119,12 +113,6 @@ static inline int sel4_start_vm(struct sel4_vm *vm)
 	irqflags = sel4_vm_lock(vm);
 	if (WARN_ON(!vm->vmm)) {
 		rc = -ENODEV;
-		goto out_unlock;
-	}
-
-	if (!sel4_vm_mmio_reqs(vm)) {
-		pr_notice("no ioreq handler");
-		rc = -EBADFD;
 		goto out_unlock;
 	}
 
@@ -212,24 +200,6 @@ static inline int sel4_vm_set_irqline(struct sel4_vm *vm, u32 irq, u32 op)
 	return rc;
 }
 
-static inline int sel4_vm_notify_io_handled(struct sel4_vm *vm, u32 slot)
-{
-	int rc;
-
-	if (WARN_ON(!vm || !SEL4_IOREQ_SLOT_VALID(slot)))
-		return -EINVAL;
-
-	lockdep_assert_held(&vm->lock);
-
-	if (WARN_ON(!vm->vmm)) {
-		return -ENODEV;
-	}
-
-	rc = driver_ack_mmio_finish(&vm->vmm->rpc, slot);
-
-	return rc;
-}
-
 static inline irqreturn_t sel4_vm_call_irqhandler(struct sel4_vm *vm, int irq)
 {
 	irqreturn_t rc;
@@ -286,12 +256,7 @@ int sel4_vm_irqfd_config(struct sel4_vm *vm,
 int sel4_vm_ioeventfd_config(struct sel4_vm *vm,
 			     struct sel4_ioeventfd_config *config);
 
-/* Returns SEL4_IOEVENTFD_PROCESSED or SEL4_IOEVENTFD_NONE to indicate whether
- * ioeventfd processed the ioreq.
- *
- * On errors a negative value is returned.
- */
-int sel4_vm_ioeventfd_process(struct sel4_vm *vm, int slot);
+unsigned int rpc_process_mmio(struct sel4_vm *vm, rpcmsg_t *req);
 
 int sel4_init(struct sel4_vm_server *vm_server, struct module *module);
 void sel4_exit(void);

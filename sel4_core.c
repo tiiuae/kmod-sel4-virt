@@ -40,32 +40,32 @@ static struct sel4_vm_server *vm_server;
 static struct workqueue_struct *sel4_ioreq_wq;
 static DECLARE_WORK(sel4_ioreq_work, sel4_vm_upcall_work);
 
+static unsigned int rpc_process(rpcmsg_t *req, void *cookie)
+{
+	struct sel4_vm *vm = cookie;
+
+	switch (QEMU_OP(req->mr0)) {
+	case QEMU_OP_MMIO:
+		return rpc_process_mmio(vm, req);
+	default:
+		break;
+	}
+
+	return RPCMSG_STATE_DEVICE_USER;
+}
+
 static void sel4_vm_process_ioreqs(struct sel4_vm *vm)
 {
-	struct sel4_ioreq *ioreq;
-	int slot;
 	unsigned long irqflags;
 
 	irqflags = sel4_vm_lock(vm);
 
-	if (!sel4_vm_mmio_reqs(vm))
-		goto out_unlock;
+	rpcmsg_queue_iterate(vm->vmm->rpc.rx_queue, rpc_process, vm);
 
-	for (slot = 0; slot < SEL4_MAX_IOREQS; slot++) {
-		ioreq = sel4_vm_mmio_reqs(vm) + slot;
-		if (smp_load_acquire(&ioreq->state) == SEL4_IOREQ_STATE_PENDING) {
-			if (sel4_vm_ioeventfd_process(vm, slot) == SEL4_IOEVENTFD_PROCESSED)
-				continue;
-
-			smp_store_release(&ioreq->state,
-					  SEL4_IOREQ_STATE_PROCESSING);
-			set_bit(slot, vm->ioreq_map);
-
-			wake_up_interruptible(&vm->ioreq_wait);
-		}
+	if (!rpcmsg_queue_empty(vm->vmm->rpc.rx_queue)) {
+		wake_up_interruptible(&vm->ioreq_wait);
 	}
 
-out_unlock:
 	sel4_vm_unlock(vm, irqflags);
 }
 
@@ -241,39 +241,19 @@ error:
 	return rc;
 }
 
-static int sel4_vm_ioreq_complete(struct sel4_vm *vm, u32 slot)
-{
-	struct sel4_ioreq *ioreq;
-	int rc = 0;
-	unsigned long irqflags;
-
-	if (!SEL4_IOREQ_SLOT_VALID(slot)) {
-		return -EINVAL;
-	}
-
-	irqflags = sel4_vm_lock(vm);
-	if (sel4_vm_mmio_reqs(vm)) {
-		clear_bit(slot, vm->ioreq_map);
-		ioreq = sel4_vm_mmio_reqs(vm) + slot;
-		smp_store_release(&ioreq->state, SEL4_IOREQ_STATE_COMPLETE);
-		rc = sel4_vm_notify_io_handled(vm, slot);
-	} else {
-		rc = -ENODEV;
-	}
-	sel4_vm_unlock(vm, irqflags);
-
-	return rc;
-}
-
 static inline bool sel4_ioreq_pending(struct sel4_vm *vm)
 {
-	return !bitmap_empty(vm->ioreq_map, SEL4_MAX_IOREQS);
+	return !rpcmsg_queue_empty(vm->vmm->rpc.rx_queue);
 }
 
 static int sel4_vm_wait_io(struct sel4_vm *vm)
 {
-	if (!sel4_vm_mmio_reqs(vm)) {
+	if (!vm || !vm->vmm) {
 		return -ENODEV;
+	}
+
+	if (!rpcmsg_queue_empty(vm->vmm->rpc.rx_queue)) {
+		sel4_vm_upcall_notify(vm);
 	}
 
 	if (wait_event_interruptible(vm->ioreq_wait, sel4_ioreq_pending(vm))) {
@@ -354,10 +334,6 @@ static long sel4_vm_ioctl(struct file *filp, unsigned int ioctl,
 	}
 	case SEL4_WAIT_IO: {
 		rc = sel4_vm_wait_io(vm);
-		break;
-	}
-	case SEL4_NOTIFY_IO_HANDLED: {
-		rc = sel4_vm_ioreq_complete(vm, arg);
 		break;
 	}
 
