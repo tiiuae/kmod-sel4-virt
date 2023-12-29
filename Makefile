@@ -9,7 +9,6 @@ includedir = $(prefix)/include
 ifneq ($(KERNELRELEASE),)
 sel4_virt := sel4_core.o \
 	     sel4_vmm.o \
-	     sel4_rpc.o \
 	     sel4_mmap.o \
 	     sel4_ioeventfd.o \
 	     sel4_irqfd.o
@@ -28,7 +27,6 @@ PUB_HEADERS := include/uapi/sel4/sel4_virt.h \
 
 DEPS := $(PUB_HEADERS) \
 	sel4_virt_drv.h \
-	sel4_rpc.h \
 	pci/sel4_vmm_pool.h \
 	test/kmod/sel4_virt_test.h
 KERNEL_SRC ?= /lib/modules/`uname -r`/build

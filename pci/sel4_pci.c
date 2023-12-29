@@ -7,7 +7,6 @@
 #include <linux/list.h>
 
 #include "sel4_virt_drv.h"
-#include "sel4_rpc.h"
 #include "sel4_vmm_pool.h"
 
 #define PCI_SEL4_DEVICE_ID 0xa111
@@ -169,13 +168,7 @@ static void sel4_pci_doorbell(void *private)
 }
 
 struct sel4_vmm_ops sel4_test_vmm_ops = {
-	.start_vm = sel4_rpc_op_start_vm,
-	.create_vpci_device = sel4_rpc_op_create_vpci_device,
-	.destroy_vpci_device = sel4_rpc_op_destroy_vpci_device,
-	.set_irqline = sel4_rpc_op_set_irqline,
-	.set_mmio_region = sel4_rpc_op_set_mmio_region,
 	.upcall_irqhandler = sel4_pci_irqhandler,
-	.notify_io_handled = sel4_rpc_op_notify_io_handled,
 };
 
 static int sel4_pci_vmm_create(int id, struct sel4_dataport * dataports[])

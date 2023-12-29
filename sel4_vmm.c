@@ -12,14 +12,6 @@
 
 static atomic_t id = ATOMIC_INIT(0);
 
-static bool vmm_ops_valid(struct sel4_vmm_ops ops)
-{
-	return (ops.start_vm &&
-		ops.create_vpci_device &&
-		ops.set_irqline &&
-		ops.notify_io_handled);
-}
-
 static bool sel4_mem_map_valid(struct sel4_mem_map *mem)
 {
 	if (WARN_ON(IS_ERR_OR_NULL(mem))) {
@@ -38,17 +30,12 @@ bool sel4_vmm_valid(struct sel4_vmm *vmm)
 	}
 
 	return (sel4_mem_map_valid(&vmm->ram) &&
-		sel4_mem_map_valid(&vmm->iobuf) &&
-		vmm_ops_valid(vmm->ops));
+		sel4_mem_map_valid(&vmm->iobuf));
 }
 
 struct sel4_vmm *sel4_vmm_alloc(struct sel4_vmm_ops ops)
 {
 	struct sel4_vmm *vmm;
-
-	if (!vmm_ops_valid(ops)) {
-		return ERR_PTR(-EINVAL);
-	}
 
 	vmm = kzalloc(sizeof(struct sel4_vmm), GFP_KERNEL);
 	if (!vmm) {
