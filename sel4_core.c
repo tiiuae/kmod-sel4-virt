@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright 2022, Technology Innovation Institute
+ * Copyright 2022, 2023, 2024, Technology Innovation Institute
  *
  */
 
@@ -213,7 +213,7 @@ static int sel4_iohandler_release(struct inode *inode, struct file *filp)
 
 static struct file_operations sel4_iohandler_fops = {
 	.release        = sel4_iohandler_release,
-	.mmap           = sel4_iohandler_mmap,
+	.mmap           = sel4_vm_mmap,
 	.llseek		= noop_llseek,
 };
 
@@ -234,8 +234,8 @@ static int sel4_vm_create_iohandler(struct sel4_vm *vm)
 
 	/* new fd for iohandler */
 	sel4_vm_get(vm);
-	rc = anon_inode_getfd("sel4-vm-iohandler", &sel4_iohandler_fops, vm,
-			      O_RDWR | O_CLOEXEC);
+	rc = anon_inode_getfd("sel4-vm-iohandler", &sel4_iohandler_fops,
+			      &vm->vmm->iobuf, O_RDWR | O_CLOEXEC);
 	if (rc < 0)
 		goto error;
 
@@ -390,7 +390,7 @@ static int sel4_vm_release(struct inode *inode, struct file *filp)
 }
 
 static struct file_operations sel4_vm_fops = {
-	.mmap		= sel4_vm_mmap_ram,
+	.mmap		= sel4_vm_mmap,
 	.release        = sel4_vm_release,
 	.unlocked_ioctl = sel4_vm_ioctl,
 	.llseek		= noop_llseek,
@@ -412,7 +412,8 @@ static int sel4_dev_ioctl_create_vm(struct sel4_vm_params params)
 	if (rc < 0)
 		goto put;
 
-	file = anon_inode_getfile("sel4-vm", &sel4_vm_fops, vm, O_RDWR);
+	file = anon_inode_getfile("sel4-vm", &sel4_vm_fops, vm,
+				  O_RDWR);
 	if (IS_ERR(file)) {
 		put_unused_fd(rc);
 		rc = PTR_ERR(file);

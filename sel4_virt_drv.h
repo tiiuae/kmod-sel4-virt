@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0 WITH Linux-syscall-note */
 /*
- * Copyright 2022, Technology Innovation Institute
+ * Copyright 2022, 2023, 2024, Technology Innovation Institute
  *
  */
 #ifndef __SEL4_VIRT_DRV_H
@@ -31,14 +31,15 @@ struct sel4_vm_server {
 	void *private;
 };
 
+struct sel4_vmm;
+
 struct sel4_mem_map {
 	int		type;
 	phys_addr_t	paddr;
 	void		*addr;
 	resource_size_t	size;
+	struct sel4_vmm	*vmm;
 };
-
-struct sel4_vmm;
 
 struct sel4_vmm_ops {
 	/* enable/disable irq */
@@ -290,8 +291,7 @@ int sel4_notify_vmm_dying(int id);
 long sel4_module_ioctl(struct file *filp, unsigned int ioctl,
 		       unsigned long arg);
 
-int sel4_iohandler_mmap(struct file *filp, struct vm_area_struct *vma);
-int sel4_vm_mmap_ram(struct file *filp, struct vm_area_struct *vma);
+int sel4_vm_mmap(struct file *filp, struct vm_area_struct *vma);
 
 struct sel4_vmm *sel4_vmm_alloc(struct sel4_vmm_ops ops);
 bool sel4_vmm_valid(struct sel4_vmm *vmm);
