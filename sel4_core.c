@@ -48,11 +48,11 @@ static void sel4_vm_process_ioreqs(struct sel4_vm *vm)
 
 	irqflags = sel4_vm_lock(vm);
 
-	if (!vm->mmio_reqs)
+	if (!sel4_vm_mmio_reqs(vm))
 		goto out_unlock;
 
 	for (slot = 0; slot < SEL4_MAX_IOREQS; slot++) {
-		ioreq = vm->mmio_reqs + slot;
+		ioreq = sel4_vm_mmio_reqs(vm) + slot;
 		if (smp_load_acquire(&ioreq->state) == SEL4_IOREQ_STATE_PENDING) {
 			if (sel4_vm_ioeventfd_process(vm, slot) == SEL4_IOEVENTFD_PROCESSED)
 				continue;
@@ -123,8 +123,6 @@ static struct sel4_vm *sel4_vm_create(struct sel4_vm_params vm_params)
 
 	refcount_set(&vm->refcount, 1);
 
-	/* FIXME: to own file */
-	vm->mmio_reqs = NULL;
 	init_waitqueue_head(&vm->ioreq_wait);
 
 	INIT_LIST_HEAD(&vm->ioeventfds);
@@ -170,7 +168,6 @@ static void sel4_destroy_vm(struct sel4_vm *vm)
 	write_unlock_bh(&vm_list_lock);
 
 	irqflags = sel4_vm_lock(vm);
-	vm->mmio_reqs = NULL;
 	vm_server->destroy_vm(vm->vmm);
 	sel4_vm_unlock(vm, irqflags);
 
@@ -220,17 +217,6 @@ static struct file_operations sel4_iohandler_fops = {
 static int sel4_vm_create_iohandler(struct sel4_vm *vm)
 {
 	int rc;
-	unsigned long irqflags;
-
-
-	irqflags = sel4_vm_lock(vm);
-	if (vm->mmio_reqs) {
-		sel4_vm_unlock(vm, irqflags);
-		return -EEXIST;
-	}
-
-	vm->mmio_reqs = device_mmio_reqs(vm->vmm->iobuf.addr);
-	sel4_vm_unlock(vm, irqflags);
 
 	/* new fd for iohandler */
 	sel4_vm_get(vm);
@@ -242,10 +228,6 @@ static int sel4_vm_create_iohandler(struct sel4_vm *vm)
 	return rc;
 
 error:
-	irqflags = sel4_vm_lock(vm);
-	vm->mmio_reqs = NULL;
-	sel4_vm_unlock(vm, irqflags);
-
 	sel4_put_no_destroy(vm);
 
 	return rc;
@@ -262,9 +244,9 @@ static int sel4_vm_ioreq_complete(struct sel4_vm *vm, u32 slot)
 	}
 
 	irqflags = sel4_vm_lock(vm);
-	if (vm->mmio_reqs) {
+	if (sel4_vm_mmio_reqs(vm)) {
 		clear_bit(slot, vm->ioreq_map);
-		ioreq = vm->mmio_reqs + slot;
+		ioreq = sel4_vm_mmio_reqs(vm) + slot;
 		smp_store_release(&ioreq->state, SEL4_IOREQ_STATE_COMPLETE);
 		rc = sel4_vm_notify_io_handled(vm, slot);
 	} else {
@@ -282,7 +264,7 @@ static inline bool sel4_ioreq_pending(struct sel4_vm *vm)
 
 static int sel4_vm_wait_io(struct sel4_vm *vm)
 {
-	if (!vm->mmio_reqs) {
+	if (!sel4_vm_mmio_reqs(vm)) {
 		return -ENODEV;
 	}
 

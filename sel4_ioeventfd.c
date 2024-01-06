@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright 2023, Technology Innovation Institute
+ * Copyright 2023, 2024, Technology Innovation Institute
  *
  */
 
@@ -163,7 +163,7 @@ static int sel4_ioeventfd_deassign(struct sel4_vm *vm,
 
 int sel4_vm_ioeventfd_process(struct sel4_vm *vm, int slot)
 {
-	struct sel4_ioreq *ioreq = vm->mmio_reqs + slot;
+	struct sel4_ioreq *ioreq = sel4_vm_mmio_reqs(vm) + slot;
 	struct sel4_ioeventfd *ioeventfd;
 	int rc = SEL4_IOEVENTFD_NONE;
 
