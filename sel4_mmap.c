@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright 2023, Technology Innovation Institute
+ * Copyright 2023, 2024, Technology Innovation Institute
  *
  */
 
@@ -63,7 +63,7 @@ static vm_fault_t sel4_handle_vma_fault(struct vm_fault *vmf, unsigned region)
 	offset = (vmf->pgoff - index) << PAGE_SHIFT;
 
 	paddr = (void *)(unsigned long)map->paddr + offset;
-	if (vm->vmm->ram.type == SEL4_MEM_LOGICAL)
+	if (map->type == SEL4_MEM_LOGICAL)
 		page = virt_to_page(paddr);
 	else
 		page = vmalloc_to_page(paddr);
