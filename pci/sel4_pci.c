@@ -1,3 +1,9 @@
+// SPDX-License-Identifier: GPL-2.0-only
+/*
+ * Copyright 2022, 2023, 2024, Technology Innovation Institute
+ *
+ */
+
 #include <linux/module.h>
 #include <linux/kernel.h>
 #include <linux/init.h>
@@ -186,11 +192,11 @@ static int sel4_pci_vmm_create(int id, struct sel4_dataport * dataports[])
 	vmm->irq = dataports[SEL4_DATAPORT_IOBUF]->dev->irq;
 	vmm->irq_flags = IRQF_SHARED;
 
-	vmm->iobuf = dataports[SEL4_DATAPORT_IOBUF]->mem[1];
+	sel4_vmm_mem_map_set(vmm, SEL4_MEM_MAP_IOBUF, &dataports[SEL4_DATAPORT_IOBUF]->mem[1]);
 
 	rc = sel4_rpc_init(&vmm->rpc,
-			   device_rx_queue(vmm->iobuf.addr),
-			   device_tx_queue(vmm->iobuf.addr),
+			   device_rx_queue(vmm->maps[SEL4_MEM_MAP_IOBUF].addr),
+			   device_tx_queue(vmm->maps[SEL4_MEM_MAP_IOBUF].addr),
 			   sel4_pci_doorbell,
 			   dataports[SEL4_DATAPORT_IOBUF]);
 	if (rc) {
@@ -198,7 +204,7 @@ static int sel4_pci_vmm_create(int id, struct sel4_dataport * dataports[])
 		goto free_vmm;
 	}
 
-	vmm->ram = dataports[SEL4_DATAPORT_RAM]->mem[1];
+	sel4_vmm_mem_map_set(vmm, SEL4_MEM_MAP_RAM, &dataports[SEL4_DATAPORT_RAM]->mem[1]);
 
 	dataports[SEL4_DATAPORT_IOBUF]->vmm_id = vmm->id;
 	dataports[SEL4_DATAPORT_RAM]->vmm_id = vmm->id;

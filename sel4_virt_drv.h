@@ -58,8 +58,7 @@ struct sel4_vmm {
 	int			irq;
 	unsigned long		irq_flags;
 	struct sel4_vmm_ops	ops;
-	struct sel4_mem_map	iobuf;
-	struct sel4_mem_map	ram;
+	struct sel4_mem_map	maps[NUM_SEL4_MEM_MAP];
 	struct sel4_vm		*vm;
 	sel4_rpc_t		rpc;
 };
@@ -84,7 +83,16 @@ struct sel4_vm {
 
 static inline struct sel4_ioreq *sel4_vm_mmio_reqs(struct sel4_vm *vm)
 {
-	return device_mmio_reqs(vm->vmm->iobuf.addr);
+	return device_mmio_reqs(vm->vmm->maps[SEL4_MEM_MAP_IOBUF].addr);
+}
+
+static inline void sel4_vmm_mem_map_set(struct sel4_vmm *vmm,
+					unsigned int index,
+					struct sel4_mem_map *map)
+{
+	BUG_ON(index >= NUM_SEL4_MEM_MAP);
+	vmm->maps[index] = *map;
+	vmm->maps[index].vmm = vmm;
 }
 
 static inline __must_check unsigned long sel4_vm_lock(struct sel4_vm *vm)

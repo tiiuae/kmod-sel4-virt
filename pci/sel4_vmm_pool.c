@@ -1,3 +1,9 @@
+// SPDX-License-Identifier: GPL-2.0-only
+/*
+ * Copyright 2022, 2023, 2024, Technology Innovation Institute
+ *
+ */
+
 #include <linux/kernel.h>
 #include <linux/slab.h>
 #include <linux/types.h>
@@ -94,7 +100,7 @@ struct sel4_vmm *sel4_vmmpool_get(int id, resource_size_t ram_size)
 		if (id != VMID_DONT_CARE && id != entry->vmm->id) {
 			continue;
 		}
-		if (entry->vmm->ram.size >= ram_size) {
+		if (entry->vmm->maps[SEL4_MEM_MAP_RAM].size >= ram_size) {
 			vmm = entry->vmm;
 			list_del(&entry->pool);
 			kfree(entry);

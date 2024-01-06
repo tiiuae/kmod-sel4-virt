@@ -214,14 +214,21 @@ static struct file_operations sel4_iohandler_fops = {
 	.llseek		= noop_llseek,
 };
 
-static int sel4_vm_create_iohandler(struct sel4_vm *vm)
+static const char *map_names[NUM_SEL4_MEM_MAP] = {
+	[SEL4_MEM_MAP_RAM] = "guest-ram",
+	[SEL4_MEM_MAP_IOBUF] = "guest-iobuf",
+};
+
+static int sel4_vm_create_iohandler(struct sel4_vm *vm, unsigned long index)
 {
 	int rc;
 
-	/* new fd for iohandler */
+	if (index >= NUM_SEL4_MEM_MAP)
+		return -EINVAL;
+
 	sel4_vm_get(vm);
-	rc = anon_inode_getfd("sel4-vm-iohandler", &sel4_iohandler_fops,
-			      &vm->vmm->iobuf, O_RDWR | O_CLOEXEC);
+	rc = anon_inode_getfd(map_names[index], &sel4_iohandler_fops,
+			      &vm->vmm->maps[index], O_RDWR | O_CLOEXEC);
 	if (rc < 0)
 		goto error;
 
@@ -341,7 +348,7 @@ static long sel4_vm_ioctl(struct file *filp, unsigned int ioctl,
 		break;
 	}
 	case SEL4_CREATE_IO_HANDLER: {
-		rc = sel4_vm_create_iohandler(vm);
+		rc = sel4_vm_create_iohandler(vm, arg);
 		break;
 	}
 	case SEL4_WAIT_IO: {

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright 2022, Technology Innovation Institute
+ * Copyright 2022, 2023, 2024, Technology Innovation Institute
  *
  */
 #include "linux/mm.h"
@@ -25,12 +25,18 @@ static bool sel4_mem_map_valid(struct sel4_mem_map *mem)
 
 bool sel4_vmm_valid(struct sel4_vmm *vmm)
 {
+	int i;
+
 	if (WARN_ON(IS_ERR_OR_NULL(vmm))) {
 		return false;
 	}
 
-	return (sel4_mem_map_valid(&vmm->ram) &&
-		sel4_mem_map_valid(&vmm->iobuf));
+	for (i = 0; i < NUM_SEL4_MEM_MAP; i++) {
+		if (!sel4_mem_map_valid(&vmm->maps[i]))
+			return false;
+	}
+
+	return true;
 }
 
 struct sel4_vmm *sel4_vmm_alloc(struct sel4_vmm_ops ops)

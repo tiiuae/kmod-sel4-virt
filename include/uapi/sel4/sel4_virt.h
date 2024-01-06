@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0 WITH Linux-syscall-note */
 /*
- * Copyright 2022, Technology Innovation Institute
+ * Copyright 2022, 2023, 2024, Technology Innovation Institute
  *
  */
 #ifndef __SEL4_VIRT_H
@@ -12,6 +12,12 @@
 
 #define SEL4_IOEVENTFD_FLAG_DATAMATCH	(1 << 1)
 #define SEL4_IOEVENTFD_FLAG_DEASSIGN	(1 << 2)
+
+enum {
+	SEL4_MEM_MAP_RAM,
+	SEL4_MEM_MAP_IOBUF,
+	NUM_SEL4_MEM_MAP
+};
 
 struct sel4_ioeventfd_config {
 	__s32	fd;
@@ -47,8 +53,7 @@ struct sel4_irqfd_config {
 
 #define SEL4_MMIO_REGION		_IOW(SEL4_IOCTL, 0x27, struct sel4_mmio_region_config)
 
-/* Returns fd which is to be mmap'd with size SEL4_IOREQ_MMAP_SIZE. */
-#define SEL4_CREATE_IO_HANDLER	_IO(SEL4_IOCTL, 0x30)
+#define SEL4_CREATE_IO_HANDLER	_IOW(SEL4_IOCTL, 0x30, __u64)
 #define SEL4_WAIT_IO		_IO(SEL4_IOCTL, 0x31)
 #define SEL4_NOTIFY_IO_HANDLED	_IOW(SEL4_IOCTL, 0x32, __u64)
 
