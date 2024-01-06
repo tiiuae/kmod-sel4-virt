@@ -217,6 +217,7 @@ static struct file_operations sel4_iohandler_fops = {
 static const char *map_names[NUM_SEL4_MEM_MAP] = {
 	[SEL4_MEM_MAP_RAM] = "guest-ram",
 	[SEL4_MEM_MAP_IOBUF] = "guest-iobuf",
+	[SEL4_MEM_MAP_EVENT_BAR] = "guest-event-bar",
 };
 
 static int sel4_vm_create_iohandler(struct sel4_vm *vm, unsigned long index)

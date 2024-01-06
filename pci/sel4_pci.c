@@ -193,6 +193,7 @@ static int sel4_pci_vmm_create(int id, struct sel4_dataport * dataports[])
 	vmm->irq_flags = IRQF_SHARED;
 
 	sel4_vmm_mem_map_set(vmm, SEL4_MEM_MAP_IOBUF, &dataports[SEL4_DATAPORT_IOBUF]->mem[1]);
+	sel4_vmm_mem_map_set(vmm, SEL4_MEM_MAP_EVENT_BAR, &dataports[SEL4_DATAPORT_IOBUF]->mem[0]);
 
 	rc = sel4_rpc_init(&vmm->rpc,
 			   device_rx_queue(vmm->maps[SEL4_MEM_MAP_IOBUF].addr),
