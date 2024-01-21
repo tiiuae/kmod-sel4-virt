@@ -202,9 +202,11 @@ void sel4_put_no_destroy(struct sel4_vm *vm)
 
 static int sel4_iohandler_release(struct inode *inode, struct file *filp)
 {
-	struct sel4_vm *vm = filp->private_data;
+	struct sel4_mem_map *map = filp->private_data;
 
-	sel4_vm_put(vm);
+	BUG_ON(!map || !map->vmm || !map->vmm->vm);
+
+	sel4_vm_put(map->vmm->vm);
 	return 0;
 }
 
@@ -356,7 +358,6 @@ static int sel4_vm_release(struct inode *inode, struct file *filp)
 }
 
 static struct file_operations sel4_vm_fops = {
-	.mmap		= sel4_vm_mmap,
 	.release        = sel4_vm_release,
 	.unlocked_ioctl = sel4_vm_ioctl,
 	.llseek		= noop_llseek,
