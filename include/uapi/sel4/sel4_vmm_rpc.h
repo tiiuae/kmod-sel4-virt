@@ -17,6 +17,7 @@
 #include <stddef.h>
 #include <assert.h>
 #include <inttypes.h>
+#include <stdbool.h>
 
 #define __maybe_unused __attribute__ ((unused))
 #endif
