@@ -28,8 +28,6 @@
 /* Large enough to hold huge number with sign and null character */
 #define ITOA_MAX_LEN	(12)
 
-const unsigned int my_rpcmsg_state = RPCMSG_STATE_DEVICE_KERNEL;
-
 static void sel4_vm_upcall_work(struct work_struct *work);
 
 DEFINE_RWLOCK(vm_list_lock);
@@ -60,7 +58,7 @@ static void sel4_vm_process_ioreqs(struct sel4_vm *vm)
 
 	irqflags = sel4_vm_lock(vm);
 
-	rpcmsg_queue_iterate(vm->vmm->rpc.rx_queue, rpc_process, vm);
+	sel4_rpc_rx_process(&vm->vmm->rpc, rpc_process, vm);
 
 	if (!rpcmsg_queue_empty(vm->vmm->rpc.rx_queue)) {
 		wake_up_interruptible(&vm->ioreq_wait);

@@ -198,6 +198,7 @@ static int sel4_pci_vmm_create(int id, struct sel4_dataport * dataports[])
 	rc = sel4_rpc_init(&vmm->rpc,
 			   device_rx_queue(vmm->maps[SEL4_MEM_MAP_IOBUF].addr),
 			   device_tx_queue(vmm->maps[SEL4_MEM_MAP_IOBUF].addr),
+			   RPCMSG_STATE_DEVICE_KERNEL,
 			   sel4_pci_doorbell,
 			   dataports[SEL4_DATAPORT_IOBUF]);
 	if (rc) {
