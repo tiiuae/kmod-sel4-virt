@@ -42,8 +42,6 @@ struct sel4_mem_map {
 };
 
 struct sel4_vmm_ops {
-	/* enable/disable irq */
-	int (*upcall_control)(struct sel4_vmm *, s32 upcall_on);
 	/* irq handler */
 	irqreturn_t (*upcall_irqhandler)(int irq, struct sel4_vmm *);
 };
