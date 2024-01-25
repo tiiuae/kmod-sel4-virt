@@ -132,7 +132,7 @@ err:
 }
 
 static int sel4_ioeventfd_deassign(struct sel4_vm *vm,
-				 struct sel4_ioeventfd_config *config)
+				   struct sel4_ioeventfd_config *config)
 {
 	struct sel4_ioeventfd *entry, *tmp;
 	struct eventfd_ctx *eventfd;
@@ -170,6 +170,7 @@ unsigned int rpc_process_mmio(struct sel4_vm *vm, rpcmsg_t *req)
 	unsigned int slot;
 	seL4_Word addr;
 	seL4_Word data;
+	int err;
 
 	direction = BIT_FIELD_GET(req->mr0, RPC_MR0_MMIO_DIRECTION);
 	addr_space = BIT_FIELD_GET(req->mr0, RPC_MR0_MMIO_ADDR_SPACE);
@@ -193,7 +194,12 @@ unsigned int rpc_process_mmio(struct sel4_vm *vm, rpcmsg_t *req)
 	/* signal the eventfd and mark request as complete */
 	eventfd_signal(ioeventfd->eventfd, 1);
 
-	return driver_ack_mmio_finish(&vm->vmm->rpc, slot, 0) ? RPCMSG_STATE_FREE : RPCMSG_STATE_ERROR;
+	err = driver_ack_mmio_finish(&vm->vmm->rpc, slot, data);
+	if (err) {
+		return RPCMSG_STATE_ERROR;
+	}
+
+	return RPCMSG_STATE_FREE;
 }
 
 int sel4_vm_ioeventfd_config(struct sel4_vm *vm,
