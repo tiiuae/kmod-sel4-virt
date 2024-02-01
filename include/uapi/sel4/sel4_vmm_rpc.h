@@ -222,7 +222,7 @@ static inline rpcmsg_t *rpcmsg_new(rpcmsg_queue_t *q, unsigned int state)
 
     do {
         for (;;) {
-            tail = q->tail;
+            tail = atomic_load_acquire(&q->tail);
             next = QUEUE_NEXT(tail);
 
             if (next != q->head) {
