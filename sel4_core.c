@@ -54,17 +54,11 @@ static unsigned int rpc_process(rpcmsg_t *req, void *cookie)
 
 static void sel4_vm_process_ioreqs(struct sel4_vm *vm)
 {
-	unsigned long irqflags;
-
-	irqflags = sel4_vm_lock(vm);
-
 	sel4_rpc_rx_process(&vm->vmm->rpc, rpc_process, vm);
 
 	if (!rpcmsg_queue_empty(vm->vmm->rpc.rx_queue)) {
 		wake_up_interruptible(&vm->ioreq_wait);
 	}
-
-	sel4_vm_unlock(vm, irqflags);
 }
 
 static void sel4_vm_upcall_work(struct work_struct *work)
@@ -158,18 +152,26 @@ static void sel4_destroy_vm(struct sel4_vm *vm)
 
 	BUG_ON(!vm);
 
-	if (vm->vmm->irq != SEL4_IRQ_NONE)
-		free_irq(vm->vmm->irq, vm);
-
 	write_lock_bh(&vm_list_lock);
 	list_del(&vm->vm_list);
 	write_unlock_bh(&vm_list_lock);
 
 	irqflags = sel4_vm_lock(vm);
-	vm_server->destroy_vm(vm->vmm);
+	if (vm->vmm->irq != SEL4_IRQ_NONE)
+		free_irq(vm->vmm->irq, vm);
+
+	vm->vmm->irq = SEL4_IRQ_NONE;
 	sel4_vm_unlock(vm, irqflags);
 
+	/* ensure all work served for this VM */
+	drain_workqueue(sel4_ioreq_wq);
+
+	vm_server->destroy_vm(vm->vmm);
+
 	kfree(vm);
+
+	/* make sure we don't miss work for other VMs */
+	queue_work(sel4_ioreq_wq, &sel4_ioreq_work);
 }
 
 static void sel4_vm_get(struct sel4_vm *vm)
@@ -440,9 +442,12 @@ int sel4_notify_vmm_dying(int id)
 
 	if (found) {
 		unsigned long irqflags = sel4_vm_lock(vm);
-		vm_server->destroy_vm(vm->vmm);
-		vm->vmm = NULL;
+		if (vm->vmm->irq != SEL4_IRQ_NONE)
+			free_irq(vm->vmm->irq, vm);
+
+		vm->vmm->irq = SEL4_IRQ_NONE;
 		sel4_vm_unlock(vm, irqflags);
+
 		rc = 0;
 	}
 

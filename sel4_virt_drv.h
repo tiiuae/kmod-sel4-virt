@@ -102,82 +102,51 @@ static inline void sel4_vm_unlock(struct sel4_vm *vm, unsigned long irqflags)
 
 static inline int sel4_start_vm(struct sel4_vm *vm)
 {
-	int rc;
-	unsigned long irqflags;
-
 	if (WARN_ON(!vm))
 		return -EINVAL;
 
-	irqflags = sel4_vm_lock(vm);
 	if (WARN_ON(!vm->vmm)) {
-		rc = -ENODEV;
-		goto out_unlock;
+		return -ENODEV;
 	}
 
-	rc = driver_req_start_vm(&vm->vmm->rpc);
-
-out_unlock:
-	sel4_vm_unlock(vm, irqflags);
-
-	return rc;
+	return driver_req_start_vm(&vm->vmm->rpc);
 }
 
 static inline int sel4_vm_create_vpci(struct sel4_vm *vm,
 				      struct sel4_vpci_device *vpci)
 {
-	int rc;
-	unsigned long irqflags;
-
 	if (WARN_ON(!vm || !vpci))
 		return -EINVAL;
 
-	irqflags = sel4_vm_lock(vm);
 	if (WARN_ON(!vm->vmm)) {
-		sel4_vm_unlock(vm, irqflags);
 		return -ENODEV;
 	}
 
-	rc = driver_req_create_vpci_device(&vm->vmm->rpc, vpci->pcidev);
-
-	sel4_vm_unlock(vm, irqflags);
-
-	return rc;
+	return driver_req_create_vpci_device(&vm->vmm->rpc, vpci->pcidev);
 }
 
 static inline int sel4_vm_destroy_vpci(struct sel4_vm *vm,
 				       struct sel4_vpci_device *vpci)
 {
-	int rc;
-	unsigned long irqflags;
-
 	if (WARN_ON(!vm || !vpci))
 		return -EINVAL;
 
-	irqflags = sel4_vm_lock(vm);
 	if (WARN_ON(!vm->vmm)) {
-		sel4_vm_unlock(vm, irqflags);
 		return -ENODEV;
 	}
 
 	/* Not implemented */
-	rc = -ENOSYS;
-
-	sel4_vm_unlock(vm, irqflags);
-
-	return rc;
+	return -ENOSYS;
 }
 
 static inline int sel4_vm_set_irqline(struct sel4_vm *vm, u32 irq, u32 op)
 {
 	int rc;
-	unsigned long irqflags;
 
 	if (WARN_ON(!vm))
 		return -EINVAL;
 
-	irqflags = sel4_vm_lock(vm);
 	if (WARN_ON(!vm->vmm)) {
-		sel4_vm_unlock(vm, irqflags);
 		return -ENODEV;
 	}
 
@@ -193,54 +162,33 @@ static inline int sel4_vm_set_irqline(struct sel4_vm *vm, u32 irq, u32 op)
 		break;
 	}
 
-	sel4_vm_unlock(vm, irqflags);
-
 	return rc;
 }
 
 static inline irqreturn_t sel4_vm_call_irqhandler(struct sel4_vm *vm, int irq)
 {
-	irqreturn_t rc;
-	unsigned long irqflags;
-
 	if (WARN_ON(!vm))
 		return IRQ_NONE;
 
-	irqflags = sel4_vm_lock(vm);
 	if (WARN_ON(!vm->vmm || !vm->vmm->ops.upcall_irqhandler)) {
-		rc = IRQ_NONE;
-		goto unlock;
+		return IRQ_NONE;
 	}
 
-	rc = vm->vmm->ops.upcall_irqhandler(irq, vm->vmm);
-
-unlock:
-	sel4_vm_unlock(vm, irqflags);
-
-	return rc;
+	return vm->vmm->ops.upcall_irqhandler(irq, vm->vmm);
 }
 
 static inline int sel4_vm_mmio_region_config(struct sel4_vm *vm,
 					     struct sel4_mmio_region_config *config)
 {
-	int rc;
-	unsigned long irqflags;
-
 	if (WARN_ON(!vm) || WARN_ON(!config))
 		return -EINVAL;
 
-	irqflags = sel4_vm_lock(vm);
 	if (WARN_ON(!vm->vmm)) {
-		sel4_vm_unlock(vm, irqflags);
 		return -ENODEV;
 	}
 
-	rc = driver_req_mmio_region_config(&vm->vmm->rpc, config->gpa,
-					   config->len, config->flags);
-
-	sel4_vm_unlock(vm, irqflags);
-
-	return rc;
+	return driver_req_mmio_region_config(&vm->vmm->rpc, config->gpa,
+					     config->len, config->flags);
 }
 
 void sel4_vm_upcall_notify(struct sel4_vm *vm);
