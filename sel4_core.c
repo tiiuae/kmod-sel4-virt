@@ -54,23 +54,31 @@ static unsigned int rpc_process(rpcmsg_t *req, void *cookie)
 
 static void sel4_vm_process_ioreqs(struct sel4_vm *vm)
 {
+	/* Lock-free approach should not use locks -- if you want to make sure
+	 * 'vm' does not get destroyed while we are here, do it in some other
+	 * way -- for example, disable workqueue before destroying 'vm'
+	 */
+#if 0
 	unsigned long irqflags;
 
 	irqflags = sel4_vm_lock(vm);
-
+#endif
 	sel4_rpc_rx_process(&vm->vmm->rpc, rpc_process, vm);
 
-	if (!rpcmsg_queue_empty(vm->vmm->rpc.rx_queue)) {
-		wake_up_interruptible(&vm->ioreq_wait);
-	}
-
+	wake_up_interruptible(&vm->ioreq_wait);
+#if 0
 	sel4_vm_unlock(vm, irqflags);
+#endif
 }
 
 static void sel4_vm_upcall_work(struct work_struct *work)
 {
 	struct sel4_vm *vm;
 
+	/* with multiple driver-VMs (to this device-VM) this is something
+	 * to think about really carefully... separate workqueues would
+	 * be better
+	 */
 	read_lock(&vm_list_lock);
 	list_for_each_entry(vm, &vm_list, vm_list) {
 		sel4_vm_process_ioreqs(vm);
@@ -241,22 +249,49 @@ error:
 	return rc;
 }
 
-static inline bool sel4_ioreq_pending(struct sel4_vm *vm)
+static unsigned int _ioreq_pending(rpcmsg_t *msg, void *cookie)
 {
-	return !rpcmsg_queue_empty(vm->vmm->rpc.rx_queue);
+	*(bool *)pending = true;
+
+	/* bail out of iteration function without creating race condition */
+	return RPCMSG_STATE_ERROR;
 }
 
-static int sel4_vm_wait_io(struct sel4_vm *vm)
+static inline bool ioreq_pending(struct sel4_vm *vm, unsigned int handler_state)
+{
+	bool pending = false;
+
+	rpcmsg_queue_iterate(vm->vmm->rpc->rx_queue, handler_state,
+			     _ioreq_pending, &pending);
+
+	return pending;
+}
+
+static inline bool user_ioreq_pending(struct sel4_vm *vm)
+{
+	return ioreq_pending(vm, RPCMSG_STATE_DEVICE_USER);
+}
+
+static inline bool kernel_ioreq_pending(struct sel4_vm *vm)
+{
+	return ioreq_pending(vm, RPCMSG_STATE_DEVICE_KERNEL);
+}
+
+static int user_ioreq_wait(struct sel4_vm *vm)
 {
 	if (!vm || !vm->vmm) {
 		return -ENODEV;
 	}
 
-	if (!rpcmsg_queue_empty(vm->vmm->rpc.rx_queue)) {
-		sel4_vm_upcall_notify(vm);
+	/* Workqueue might have been run after IRQ while user side was
+	 * blocking the processing by holding head of queue, in this case
+	 * we need to kick workqueue again before going to sleep ourselves.
+	 */
+	if (kernel_ioreq_pending(vm)) {
+		sel4_vm_upcall_notify();
 	}
 
-	if (wait_event_interruptible(vm->ioreq_wait, sel4_ioreq_pending(vm))) {
+	if (wait_event_interruptible(vm->ioreq_wait, user_ioreq_pending(vm))) {
 		return -ERESTARTSYS;
 	}
 
@@ -333,7 +368,7 @@ static long sel4_vm_ioctl(struct file *filp, unsigned int ioctl,
 		break;
 	}
 	case SEL4_WAIT_IO: {
-		rc = sel4_vm_wait_io(vm);
+		rc = user_ioreq_wait(vm);
 		break;
 	}
 
