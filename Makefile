@@ -62,6 +62,9 @@ test_run: test/test_sel4
 test/test_sel4: default $(OBJS)
 	$(CC) -o $@ $(OBJS) $(CFLAGS)
 
+test/test_queue:  test/test_queue.o test/test_utils.o
+	$(CC) -o $@ $^ $(CFLAGS)
+
 test/%.o: test/%.c $(TEST_DEPS)
 	$(CC) -c -o $@ $< $(CPPFLAGS) $(CFLAGS)
 
