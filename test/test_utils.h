@@ -19,6 +19,9 @@ void _test_assert(bool exp, const char *exp_str, const char *file,
 #define assert_true(exp) \
   assert_fmt(exp, "  assert_true failed")
 
+#define assert_false(exp) \
+  assert_fmt(!(exp), "  assert_false failed")
+
 #define assert_cmp(exp, op, suffix,                     \
                    left_str, right_str,                 \
                    left_val, right_val)                 \
