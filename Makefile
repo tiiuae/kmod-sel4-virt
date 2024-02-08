@@ -24,6 +24,7 @@ else
 PUB_HEADERS := include/uapi/sel4/sel4_virt.h \
 	       include/uapi/sel4/sel4_virt_types.h \
 	       include/uapi/sel4/sel4_vmm_rpc.h \
+	       include/uapi/sel4/rpc_queue.h
 
 DEPS := $(PUB_HEADERS) \
 	sel4_virt_drv.h \
