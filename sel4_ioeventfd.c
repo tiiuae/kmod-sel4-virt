@@ -161,7 +161,7 @@ static int sel4_ioeventfd_deassign(struct sel4_vm *vm,
 	return 0;
 }
 
-unsigned int rpc_process_mmio(struct sel4_vm *vm, rpcmsg_t *req)
+int rpc_process_mmio(struct sel4_vm *vm, rpcmsg_t *req)
 {
 	struct sel4_ioeventfd *ioeventfd;
 	unsigned int direction;
@@ -182,14 +182,14 @@ unsigned int rpc_process_mmio(struct sel4_vm *vm, rpcmsg_t *req)
 
 	if (direction == SEL4_IO_DIR_READ) {
 		/* let userspace process reads */
-		return RPCMSG_STATE_DEVICE_USER;
+		return -1;
 	}
 
 	irqflags = sel4_vm_lock(vm);
 	ioeventfd = sel4_ioeventfd_match(vm, addr_space, addr, len, data);
 	if (!ioeventfd) {
 		sel4_vm_unlock(vm, irqflags);
-		return RPCMSG_STATE_DEVICE_USER;
+		return -1;
 	}
 
 	/* signal the eventfd and mark request as complete */
@@ -198,10 +198,11 @@ unsigned int rpc_process_mmio(struct sel4_vm *vm, rpcmsg_t *req)
 
 	err = driver_ack_mmio_finish(&vm->vmm->rpc, slot, data);
 	if (err) {
-		return RPCMSG_STATE_ERROR;
+		// FIXME: Wait and retry
+		return -1;
 	}
 
-	return RPCMSG_STATE_FREE;
+	return 0;
 }
 
 int sel4_vm_ioeventfd_config(struct sel4_vm *vm,

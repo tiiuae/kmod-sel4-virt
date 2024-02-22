@@ -59,6 +59,7 @@ struct sel4_vmm {
 	struct sel4_mem_map	maps[NUM_SEL4_MEM_MAP];
 	struct sel4_vm		*vm;
 	sel4_rpc_t		rpc;
+	rpcmsg_event_queue_t	device_rx;
 };
 
 /* Indicates whether ioeventfd processed the ioreq */
@@ -202,7 +203,7 @@ int sel4_vm_irqfd_config(struct sel4_vm *vm,
 int sel4_vm_ioeventfd_config(struct sel4_vm *vm,
 			     struct sel4_ioeventfd_config *config);
 
-unsigned int rpc_process_mmio(struct sel4_vm *vm, rpcmsg_t *req);
+int rpc_process_mmio(struct sel4_vm *vm, rpcmsg_t *req);
 
 int sel4_init(struct sel4_vm_server *vm_server, struct module *module);
 void sel4_exit(void);

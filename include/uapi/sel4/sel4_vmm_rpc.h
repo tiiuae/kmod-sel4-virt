@@ -6,54 +6,48 @@
 #pragma once
 
 #ifdef __KERNEL__
-#include <linux/atomic.h>
-#include <linux/string.h>
-#include <linux/kernel.h>
 #include <linux/types.h>
-#include <linux/compiler_attributes.h>
 #else
-#include <string.h>
-#include <stdio.h>
-#include <stddef.h>
 #include <assert.h>
 #include <inttypes.h>
-#include <stdbool.h>
-
-#define __maybe_unused __attribute__ ((unused))
 #endif
 
-typedef unsigned long seL4_Word;
+#include "rpc_queue.h"
 
-#define atomic_load_acquire(ptr) __atomic_load_n(ptr, __ATOMIC_ACQUIRE)
-#define atomic_store_release(ptr, i)  __atomic_store_n(ptr, i, __ATOMIC_RELEASE)
+typedef enum rpcmsg_iobuf_id {
+    iobuf_id_driver = 0,
+    iobuf_id_driver_fwd, /* kernel -> user */
+    iobuf_id_device,
+    iobuf_id_last,
+} rpcmsg_iobuf_id_t;
 
-#ifndef __KERNEL__
-#define atomic_compare_and_swap(_p, _o, _n) __sync_bool_compare_and_swap(_p, _o, _n)
-#else
-#define atomic_compare_and_swap(_p, _o, _n) (arch_cmpxchg((_p), (_o), (_n)) == (_o))
-#endif
+typedef struct rpcmsg_iobuf {
+  rpcmsg_buffer_t buffers[iobuf_id_last];
+  rpcmsg_queue_t queues[iobuf_id_last];
+} rpcmsg_iobuf_t;
 
-#if defined(__KERNEL__)
-#define rpc_assert(_cond) BUG_ON(!(_cond))
-#else
-#define rpc_assert assert
-#endif
+#define IOBUF_NUM_PAGES 2
+#define iobuf_queue(_addr, _id, _type)                  \
+    ({                                                  \
+        rpcmsg_iobuf_t *_iobuf = (void *)(_addr);       \
+        _type _q = {                                    \
+          .buffer = &_iobuf->buffers[(_id)],            \
+          .queue = &_iobuf->queues[(_id)],              \
+        };                                              \
+        _q;                                             \
+    })
 
-#define IOBUF_NUM_PAGES             2
+#define driver_tx_queue(_addr) iobuf_queue((_addr), iobuf_id_driver, rpcmsg_event_queue_t)
+#define driver_rx_queue(_addr) iobuf_queue((_addr), iobuf_id_device, rpcmsg_event_queue_t)
 
-#define IOBUF_PAGE_DRIVER_RX        1
-#define IOBUF_PAGE_DRIVER_TX        0
+#define device_km_tx_queue(_addr) iobuf_queue((_addr), iobuf_id_device, rpcmsg_event_queue_t)
+#define device_km_rx_queue(_addr) iobuf_queue((_addr), iobuf_id_driver, rpcmsg_event_queue_t)
 
-#define IOBUF_PAGE_DEVICE_RX        IOBUF_PAGE_DRIVER_TX
-#define IOBUF_PAGE_DEVICE_TX        IOBUF_PAGE_DRIVER_RX
+#define device_tx_queue(_addr) iobuf_queue((_addr), iobuf_id_device, rpcmsg_event_queue_t)
+#define device_rx_queue(_addr) iobuf_queue((_addr), iobuf_id_driver_fwd, rpcmsg_event_queue_t)
 
-#define iobuf_page(_iobuf, _page)   (((uintptr_t)(_iobuf)) + (4096 * (_page)))
-
-#define driver_tx_queue(_iobuf)     ((rpcmsg_queue_t *)iobuf_page((_iobuf), IOBUF_PAGE_DRIVER_TX))
-#define driver_rx_queue(_iobuf)     ((rpcmsg_queue_t *)iobuf_page((_iobuf), IOBUF_PAGE_DRIVER_RX))
-
-#define device_tx_queue(_iobuf)     ((rpcmsg_queue_t *)iobuf_page((_iobuf), IOBUF_PAGE_DEVICE_TX))
-#define device_rx_queue(_iobuf)     ((rpcmsg_queue_t *)iobuf_page((_iobuf), IOBUF_PAGE_DEVICE_RX))
+static_assert(sizeof(rpcmsg_iobuf_t) < 4096 * IOBUF_NUM_PAGES,
+              "Not enough of iobuf memory");
 
 #ifndef MASK
 #define MASK(_n)                        ((1UL << (_n)) - 1)
@@ -67,33 +61,14 @@ typedef unsigned long seL4_Word;
 #define BIT_FIELD_GET(_v, _name)        (((_v) >> (_name ## _SHIFT)) & MASK(_name ## _WIDTH))
 #define BIT_FIELD_SET(_v, _name, _n)    ((BIT_FIELD_CLR_ALL(_v, _name)) | ((((seL4_Word)(_n)) << (_name ## _SHIFT)) & BIT_FIELD_MASK(_name)))
 
-#define RPCMSG_STATE_FREE               0
-#define RPCMSG_STATE_DRIVER             1
-#define RPCMSG_STATE_DEVICE_KERNEL      2
-#define RPCMSG_STATE_DEVICE_USER        3
-#define RPCMSG_STATE_ERROR              ~0U
-
-#define rpcmsg_state_ptr(_msg_ptr)          ((uint32_t *)&(_msg_ptr)->mr0)
-#define rpcmsg_state_get(_msg_ptr)          atomic_load_acquire(rpcmsg_state_ptr(_msg_ptr))
-#define rpcmsg_state_set(_msg_ptr, _state)  atomic_store_release(rpcmsg_state_ptr(_msg_ptr), _state)
-
-#define RPC_MR0_STATE_WIDTH             32
-#define RPC_MR0_STATE_SHIFT             0
-
 #define RPC_MR0_OP_WIDTH                6
-#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
-#define RPC_MR0_OP_SHIFT                32
-#elif __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
 #define RPC_MR0_OP_SHIFT                0
-#else
-#error Cannot determinate endianness
-#endif
 
-/* from VMM to QEMU */
+/* from driver to device */
 #define QEMU_OP_MMIO        0
 #define QEMU_OP_PUTC_LOG    2
 
-/* from QEMU to VMM */
+/* from device to driver */
 #define QEMU_OP_SET_IRQ     16
 #define QEMU_OP_CLR_IRQ     17
 #define QEMU_OP_START_VM    18
@@ -130,143 +105,47 @@ typedef unsigned long seL4_Word;
 
 /*****************************************************************************/
 
-#define RPCMSG_BUFFER_SIZE  32
-
-typedef struct {
-    seL4_Word mr0;
-    seL4_Word mr1;
-    seL4_Word mr2;
-    seL4_Word mr3;
-} rpcmsg_t;
-
-typedef struct {
-    rpcmsg_t data[RPCMSG_BUFFER_SIZE];
-    seL4_Word head;
-    seL4_Word tail;
-} rpcmsg_queue_t;
-
 typedef struct sel4_rpc {
-    rpcmsg_queue_t *tx_queue;
-    rpcmsg_queue_t *rx_queue;
-    /* the message state this is hooked to */
-    unsigned int my_state;
+    rpcmsg_event_queue_t tx_queue;
+    rpcmsg_event_queue_t rx_queue;
+
     void (*doorbell)(void *doorbell_cookie);
     void *doorbell_cookie;
 } sel4_rpc_t;
 
-#define QUEUE_NEXT(_i) (((_i) + 1) & (RPCMSG_BUFFER_SIZE - 1))
-
-__maybe_unused static void rpcmsg_queue_init(rpcmsg_queue_t *q)
-{
-    memset(q, 0, sizeof(*q));
-}
-
 static inline
-int rpcmsg_queue_iterate(rpcmsg_queue_t *q,
-                         unsigned int handler_state,
-                         unsigned int (*fn)(rpcmsg_t *msg, void *cookie),
+int rpcmsg_queue_iterate(rpcmsg_event_queue_t *q,
+                         int (*fn)(rpcmsg_t *msg, void *cookie),
                          void *cookie)
 {
-    rpcmsg_t *msg;
-    unsigned int state;
-    unsigned int head;
+    rpcmsg_t msg;
+    int ret = 0;
 
-    do {
-        head = atomic_load_acquire(&q->head);
-        if (head == q->tail) {
+    while (!rpcmsg_event_rx(q, &msg))
+    {
+        ret = fn(&msg, cookie);
+        if (ret < 0) {
             break;
         }
+    }
 
-        msg = q->data + head;
-
-        state = rpcmsg_state_get(msg);
-        if (state != RPCMSG_STATE_FREE) {
-            if (state != handler_state) {
-                break;
-            }
-
-            state = fn(msg, cookie);
-            if (state == RPCMSG_STATE_ERROR) {
-                return -1;
-            }
-        }
-
-        rpcmsg_state_set(msg, state);
-        if (state == RPCMSG_STATE_FREE) {
-            head = QUEUE_NEXT(head);
-        }
-
-        atomic_store_release(&q->head, head);
-    } while (state == RPCMSG_STATE_FREE);
-
-    return 0;
+    return ret;
 }
 
 static inline int sel4_rpc_rx_process(sel4_rpc_t *rpc,
-                                      unsigned int (*fn)(rpcmsg_t *msg, void *cookie),
+                                      int (*fn)(rpcmsg_t *msg, void *cookie),
                                       void *cookie)
 {
-    return rpcmsg_queue_iterate(rpc->rx_queue, rpc->my_state, fn, cookie);
-}
-
-static inline void plat_yield(void)
-{
-    /* TODO */
-}
-
-static inline rpcmsg_t *rpcmsg_new(rpcmsg_queue_t *q, unsigned int state)
-{
-    unsigned int tail, next;
-
-    rpc_assert(q);
-
-    do {
-        for (;;) {
-            tail = atomic_load_acquire(&q->tail);
-            next = QUEUE_NEXT(tail);
-
-            if (next != q->head) {
-                break;
-            }
-
-            /* messages are produced faster than they are consumed */
-            plat_yield();
-        }
-
-        /* if there are multiple writers, only one of those will succeed doing
-         * CAS on state below -- the others will keep looping until queue's tail
-         * is updated by that specific writer which broke out of loop -- the
-         * process will repeat inductively until only one writer is left.
-         */
-    } while (!atomic_compare_and_swap(rpcmsg_state_ptr(q->data + tail),
-                                      RPCMSG_STATE_FREE,
-                                      state));
-
-    /* since we modified state of message pointed by tail, we want that
-     * store to finish before updating tail.
-     */
-    atomic_store_release(&q->tail, next);
-
-    return q->data + tail;
-}
-
-static inline bool rpcmsg_queue_full(rpcmsg_queue_t *q)
-{
-    return QUEUE_NEXT(q->tail) == q->head;
-}
-
-static inline bool rpcmsg_queue_empty(rpcmsg_queue_t *q)
-{
-    return q->tail == q->head;
+    return rpcmsg_queue_iterate(&rpc->rx_queue, fn, cookie);
 }
 
 static inline int sel4_rpc_doorbell(sel4_rpc_t *rpc)
 {
-    if (!rpc || !rpc->tx_queue || !rpc->doorbell) {
+    if (!rpc || !rpc->tx_queue.queue || !rpc->tx_queue.buffer || !rpc->doorbell) {
         return -1;
     }
 
-    if (!rpcmsg_queue_empty(rpc->tx_queue)) {
+    if (!rpcmsg_queue_empty(rpc->tx_queue.queue)) {
         rpc->doorbell(rpc->doorbell_cookie);
     }
 
@@ -277,24 +156,9 @@ static inline int rpcmsg_send(sel4_rpc_t *rpc, unsigned int op,
                               seL4_Word mr0, seL4_Word mr1,
                               seL4_Word mr2, seL4_Word mr3)
 {
-    rpcmsg_t *msg = rpcmsg_new(rpc->tx_queue, rpc->my_state);
-
-    rpc_assert(msg);
-    rpc_assert(rpcmsg_state_get(msg) == rpc->my_state);
-
-    mr0 = BIT_FIELD_SET(mr0, RPC_MR0_STATE, rpcmsg_state_get(msg));
     mr0 = BIT_FIELD_SET(mr0, RPC_MR0_OP, op);
 
-    msg->mr0 = mr0;
-    msg->mr1 = mr1;
-    msg->mr2 = mr2;
-    msg->mr3 = mr3;
-
-    if (rpc->my_state == RPCMSG_STATE_DRIVER) {
-        rpcmsg_state_set(msg, RPCMSG_STATE_DEVICE_KERNEL);
-    } else {
-        rpcmsg_state_set(msg, RPCMSG_STATE_DRIVER);
-    }
+    rpcmsg_event_tx(&rpc->tx_queue, mr0, mr1, mr2, mr3);
 
     return sel4_rpc_doorbell(rpc);
 }
@@ -354,19 +218,18 @@ static inline int device_req_mmio_start(sel4_rpc_t *rpc, unsigned int direction,
     return rpcmsg_send(rpc, QEMU_OP_MMIO, mr0, mr1, mr2, 0);
 }
 
-static inline int sel4_rpc_init(sel4_rpc_t *rpc, rpcmsg_queue_t *rx,
-                                rpcmsg_queue_t *tx,
-                                unsigned int handler_state,
+static inline int sel4_rpc_init(sel4_rpc_t *rpc,
+                                rpcmsg_event_queue_t rx,
+                                rpcmsg_event_queue_t tx,
                                 void (*doorbell)(void *doorbell_cookie),
                                 void *doorbell_cookie)
 {
-    if (!rpc || !rx || !tx || !doorbell) {
+    if (!rpc || !rx.queue || !rx.buffer || !tx.queue || !tx.buffer || !doorbell) {
         return -1;
     }
 
     rpc->rx_queue = rx;
     rpc->tx_queue = tx;
-    rpc->my_state = handler_state;
     rpc->doorbell = doorbell;
     rpc->doorbell_cookie = doorbell_cookie;
 

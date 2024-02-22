@@ -38,25 +38,35 @@ static struct sel4_vm_server *vm_server;
 static struct workqueue_struct *sel4_ioreq_wq;
 static DECLARE_WORK(sel4_ioreq_work, sel4_vm_upcall_work);
 
-static unsigned int rpc_process(rpcmsg_t *req, void *cookie)
+static inline bool sel4_ioreq_pending(struct sel4_vm *vm)
+{
+	return !rpcmsg_queue_empty(vm->vmm->device_rx.queue);
+}
+
+static int rpc_process(rpcmsg_t *req, void *cookie)
 {
 	struct sel4_vm *vm = cookie;
 
 	switch (QEMU_OP(req->mr0)) {
 	case QEMU_OP_MMIO:
-		return rpc_process_mmio(vm, req);
+		if (!rpc_process_mmio(vm, req)) {
+			return 0;
+		}
+		break;
 	default:
 		break;
 	}
 
-	return RPCMSG_STATE_DEVICE_USER;
+	/* Forward message to userspace */
+	/* FIXME: handle (unlikely) error */
+	return rpcmsg_event_tx(&vm->vmm->device_rx, req->mr0, req->mr1, req->mr2, req->mr3);
 }
 
 static void sel4_vm_process_ioreqs(struct sel4_vm *vm)
 {
 	sel4_rpc_rx_process(&vm->vmm->rpc, rpc_process, vm);
 
-	if (!rpcmsg_queue_empty(vm->vmm->rpc.rx_queue)) {
+	if (sel4_ioreq_pending(vm)) {
 		wake_up_interruptible(&vm->ioreq_wait);
 	}
 }
@@ -243,18 +253,13 @@ error:
 	return rc;
 }
 
-static inline bool sel4_ioreq_pending(struct sel4_vm *vm)
-{
-	return !rpcmsg_queue_empty(vm->vmm->rpc.rx_queue);
-}
-
 static int sel4_vm_wait_io(struct sel4_vm *vm)
 {
 	if (!vm || !vm->vmm) {
 		return -ENODEV;
 	}
 
-	if (!rpcmsg_queue_empty(vm->vmm->rpc.rx_queue)) {
+	if (!rpcmsg_queue_empty(vm->vmm->rpc.rx_queue.queue)) {
 		sel4_vm_upcall_notify(vm);
 	}
 
