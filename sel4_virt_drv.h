@@ -15,7 +15,7 @@
 #include <linux/wait.h>
 
 #include "sel4/sel4_virt.h"
-#include <sel4/sel4_vmm_rpc.h>
+#include <sel4/rpc.h>
 
 #define SEL4_MEM_IOVA		0
 #define SEL4_MEM_LOGICAL	1

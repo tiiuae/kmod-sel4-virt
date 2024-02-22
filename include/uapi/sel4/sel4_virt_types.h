@@ -6,7 +6,7 @@
 #ifndef __SEL4_VIRT_TYPES_H
 #define __SEL4_VIRT_TYPES_H
 
-#include "sel4/sel4_vmm_rpc.h"
+#include "sel4/rpc.h"
 
 struct sel4_vm_params {
 	__u64	ram_size;
