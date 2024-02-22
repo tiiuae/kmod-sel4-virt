@@ -474,7 +474,7 @@ int sel4_init(struct sel4_vm_server *server, struct module *module)
 
 	vm_server = server;
 	sel4_ioreq_wq = alloc_workqueue("sel4_ioreq_wq",
-				       WQ_HIGHPRI | WQ_MEM_RECLAIM | WQ_UNBOUND, 1);
+					WQ_HIGHPRI | WQ_MEM_RECLAIM | WQ_UNBOUND, 1);
 	if (!sel4_ioreq_wq) {
 		pr_err("sel4: workqueue allocation failed\n");
 		return -ENOMEM;
