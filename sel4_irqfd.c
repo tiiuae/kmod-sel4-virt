@@ -30,8 +30,7 @@ static struct workqueue_struct *irqfd_cleanup_wq;
 static void sel4_irqfd_inject(struct sel4_irqfd *irqfd)
 {
 	/* Pulse irq */
-	sel4_vm_set_irqline(irqfd->vm, irqfd->virq, 1);
-	sel4_vm_set_irqline(irqfd->vm, irqfd->virq, 0);
+	sel4_vm_set_irqline(irqfd->vm, irqfd->virq, SEL4_IRQ_OP_PULSE);
 }
 
 /* Called with wqh->lock held and interrupts disabled */

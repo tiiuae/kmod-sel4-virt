@@ -158,6 +158,9 @@ static inline int sel4_vm_set_irqline(struct sel4_vm *vm, u32 irq, u32 op)
 	case SEL4_IRQ_OP_CLR:
 		rc = driver_req_clear_irqline(&vm->vmm->rpc, irq);
 		break;
+	case SEL4_IRQ_OP_PULSE:
+		rc = driver_req_pulse_irqline(&vm->vmm->rpc, irq);
+		break;
 	default:
 		rc = -EINVAL;
 		break;

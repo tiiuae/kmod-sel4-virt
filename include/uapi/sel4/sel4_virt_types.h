@@ -17,8 +17,9 @@ struct sel4_vpci_device {
 	__u32	pcidev;
 };
 
-#define SEL4_IRQ_OP_CLR	0
-#define SEL4_IRQ_OP_SET	1
+#define SEL4_IRQ_OP_CLR		RPC_IRQ_CLR
+#define SEL4_IRQ_OP_SET		RPC_IRQ_SET
+#define SEL4_IRQ_OP_PULSE	RPC_IRQ_PULSE
 
 struct sel4_irqline {
 	__u32	irq;

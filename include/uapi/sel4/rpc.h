@@ -70,7 +70,6 @@ static_assert(sizeof(rpcmsg_iobuf_t) < 4096 * IOBUF_NUM_PAGES,
 
 /* from device to driver */
 #define QEMU_OP_SET_IRQ     16
-#define QEMU_OP_CLR_IRQ     17
 #define QEMU_OP_START_VM    18
 #define QEMU_OP_REGISTER_PCI_DEV    19
 #define QEMU_OP_MMIO_REGION_CONFIG  20
@@ -102,6 +101,11 @@ static_assert(sizeof(rpcmsg_iobuf_t) < 4096 * IOBUF_NUM_PAGES,
 
 #define RPC_MR0_MMIO_LENGTH_WIDTH       4
 #define RPC_MR0_MMIO_LENGTH_SHIFT       (RPC_MR0_MMIO_ADDR_SPACE_WIDTH + RPC_MR0_MMIO_ADDR_SPACE_SHIFT)
+
+/************************* defines for QEMU_OP_SET_IRQ ***********************/
+#define RPC_IRQ_CLR	0
+#define RPC_IRQ_SET	1
+#define RPC_IRQ_PULSE	2
 
 /*****************************************************************************/
 
@@ -176,12 +180,17 @@ static inline int driver_req_create_vpci_device(sel4_rpc_t *rpc,
 
 static inline int driver_req_set_irqline(sel4_rpc_t *rpc, seL4_Word irq)
 {
-	return rpcmsg_send(rpc, QEMU_OP_SET_IRQ, 0, irq, 0, 0);
+	return rpcmsg_send(rpc, QEMU_OP_SET_IRQ, 0, irq, RPC_IRQ_SET, 0);
 }
 
 static inline int driver_req_clear_irqline(sel4_rpc_t *rpc, seL4_Word irq)
 {
-	return rpcmsg_send(rpc, QEMU_OP_CLR_IRQ, 0, irq, 0, 0);
+	return rpcmsg_send(rpc, QEMU_OP_SET_IRQ, 0, irq, RPC_IRQ_CLR, 0);
+}
+
+static inline int driver_req_pulse_irqline(sel4_rpc_t *rpc, seL4_Word irq)
+{
+	return rpcmsg_send(rpc, QEMU_OP_SET_IRQ, 0, irq, RPC_IRQ_PULSE, 0);
 }
 
 static inline int driver_ack_mmio_finish(sel4_rpc_t *rpc, unsigned int slot, seL4_Word data)
