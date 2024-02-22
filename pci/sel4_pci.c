@@ -173,7 +173,7 @@ static void sel4_pci_doorbell(void *private)
 	((uint32_t *) dataport->mem[0].addr)[EVENT_BAR_EMIT_REGISTER_INDEX] = 1;
 }
 
-struct sel4_vmm_ops sel4_test_vmm_ops = {
+struct sel4_vmm_ops sel4_pci_vmm_ops = {
 	.upcall_irqhandler = sel4_pci_irqhandler,
 };
 
@@ -182,7 +182,7 @@ static int sel4_pci_vmm_create(int id, struct sel4_dataport * dataports[])
 	struct sel4_vmm *vmm;
 	int rc = 0;
 
-	vmm = sel4_vmm_alloc(sel4_test_vmm_ops);
+	vmm = sel4_vmm_alloc(sel4_pci_vmm_ops);
 	if (IS_ERR_OR_NULL(vmm)) {
 		return PTR_ERR(vmm);
 	}
