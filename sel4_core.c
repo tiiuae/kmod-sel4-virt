@@ -40,7 +40,7 @@ static DECLARE_WORK(sel4_ioreq_work, sel4_vm_upcall_work);
 
 static inline bool sel4_ioreq_pending(struct sel4_vm *vm)
 {
-	return !rpcmsg_queue_empty(vm->vmm->device_rx.queue);
+	return !driver_rpc_request_pending(&vm->vmm->user_rpc);
 }
 
 static int rpc_process(rpcmsg_t *req, void *cookie)
@@ -59,12 +59,16 @@ static int rpc_process(rpcmsg_t *req, void *cookie)
 
 	/* Forward message to userspace */
 	/* FIXME: handle (unlikely) error */
-	return rpcmsg_event_tx(&vm->vmm->device_rx, req->mr0, req->mr1, req->mr2, req->mr3);
+	return driver_rpc_request_fwd(&vm->vmm->user_rpc, req);
 }
 
 static void sel4_vm_process_ioreqs(struct sel4_vm *vm)
 {
-	sel4_rpc_rx_process(&vm->vmm->rpc, rpc_process, vm);
+	rpcmsg_t *msg;
+
+	for_each_driver_rpc_req(msg, &vm->vmm->rpc) {
+		rpc_process(msg, vm);
+	}
 
 	if (sel4_ioreq_pending(vm)) {
 		wake_up_interruptible(&vm->ioreq_wait);
@@ -259,7 +263,7 @@ static int sel4_vm_wait_io(struct sel4_vm *vm)
 		return -ENODEV;
 	}
 
-	if (!rpcmsg_queue_empty(vm->vmm->rpc.rx_queue.queue)) {
+	if (!driver_rpc_request_pending(&vm->vmm->rpc)) {
 		sel4_vm_upcall_notify(vm);
 	}
 

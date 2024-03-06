@@ -195,17 +195,25 @@ static int sel4_pci_vmm_create(int id, struct sel4_dataport * dataports[])
 	sel4_vmm_mem_map_set(vmm, SEL4_MEM_MAP_IOBUF, &dataports[SEL4_DATAPORT_IOBUF]->mem[1]);
 	sel4_vmm_mem_map_set(vmm, SEL4_MEM_MAP_EVENT_BAR, &dataports[SEL4_DATAPORT_IOBUF]->mem[0]);
 
-	rc = sel4_rpc_init(&vmm->rpc,
-			   device_km_rx_queue(vmm->maps[SEL4_MEM_MAP_IOBUF].addr),
-			   device_km_tx_queue(vmm->maps[SEL4_MEM_MAP_IOBUF].addr),
-			   sel4_pci_doorbell,
-			   dataports[SEL4_DATAPORT_IOBUF]);
+	rc = vso_rpc_init(&vmm->rpc,
+			  vso_rpc_device_km,
+			  vmm->maps[SEL4_MEM_MAP_IOBUF].addr,
+			  sel4_pci_doorbell,
+			  dataports[SEL4_DATAPORT_IOBUF]);
 	if (rc) {
 		rc = -EINVAL;
 		goto free_vmm;
 	}
 
-	vmm->device_rx = device_rx_queue(vmm->maps[SEL4_MEM_MAP_IOBUF].addr);
+	rc = vso_rpc_init(&vmm->user_rpc,
+			  vso_rpc_device,
+			  vmm->maps[SEL4_MEM_MAP_IOBUF].addr,
+			  sel4_pci_doorbell,
+			  dataports[SEL4_DATAPORT_IOBUF]);
+	if (rc) {
+		rc = -EINVAL;
+		goto free_vmm;
+	}
 
 	sel4_vmm_mem_map_set(vmm, SEL4_MEM_MAP_RAM, &dataports[SEL4_DATAPORT_RAM]->mem[1]);
 

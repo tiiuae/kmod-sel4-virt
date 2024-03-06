@@ -58,8 +58,8 @@ struct sel4_vmm {
 	struct sel4_vmm_ops	ops;
 	struct sel4_mem_map	maps[NUM_SEL4_MEM_MAP];
 	struct sel4_vm		*vm;
-	sel4_rpc_t		rpc;
-	rpcmsg_event_queue_t	device_rx;
+	vso_rpc_t		rpc;
+	vso_rpc_t		user_rpc;
 };
 
 /* Indicates whether ioeventfd processed the ioreq */
@@ -110,7 +110,7 @@ static inline int sel4_start_vm(struct sel4_vm *vm)
 		return -ENODEV;
 	}
 
-	return driver_req_start_vm(&vm->vmm->rpc);
+	return device_rpc_req_start_vm(&vm->vmm->rpc);
 }
 
 static inline int sel4_vm_create_vpci(struct sel4_vm *vm,
@@ -123,7 +123,7 @@ static inline int sel4_vm_create_vpci(struct sel4_vm *vm,
 		return -ENODEV;
 	}
 
-	return driver_req_create_vpci_device(&vm->vmm->rpc, vpci->pcidev);
+	return device_rpc_req_create_vpci_device(&vm->vmm->rpc, vpci->pcidev);
 }
 
 static inline int sel4_vm_destroy_vpci(struct sel4_vm *vm,
@@ -153,13 +153,13 @@ static inline int sel4_vm_set_irqline(struct sel4_vm *vm, u32 irq, u32 op)
 
 	switch (op) {
 	case SEL4_IRQ_OP_SET:
-		rc = driver_req_set_irqline(&vm->vmm->rpc, irq);
+		rc = device_rpc_req_set_irqline(&vm->vmm->rpc, irq);
 		break;
 	case SEL4_IRQ_OP_CLR:
-		rc = driver_req_clear_irqline(&vm->vmm->rpc, irq);
+		rc = device_rpc_req_clear_irqline(&vm->vmm->rpc, irq);
 		break;
 	case SEL4_IRQ_OP_PULSE:
-		rc = driver_req_pulse_irqline(&vm->vmm->rpc, irq);
+		rc = device_rpc_req_pulse_irqline(&vm->vmm->rpc, irq);
 		break;
 	default:
 		rc = -EINVAL;
@@ -191,8 +191,8 @@ static inline int sel4_vm_mmio_region_config(struct sel4_vm *vm,
 		return -ENODEV;
 	}
 
-	return driver_req_mmio_region_config(&vm->vmm->rpc, config->gpa,
-					     config->len, config->flags);
+	return device_rpc_req_mmio_region_config(&vm->vmm->rpc, config->gpa,
+						 config->len, config->flags);
 }
 
 void sel4_vm_upcall_notify(struct sel4_vm *vm);

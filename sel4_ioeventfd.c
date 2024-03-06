@@ -196,7 +196,7 @@ int rpc_process_mmio(struct sel4_vm *vm, rpcmsg_t *req)
 	eventfd_signal(ioeventfd->eventfd, 1);
 	sel4_vm_unlock(vm, irqflags);
 
-	err = driver_ack_mmio_finish(&vm->vmm->rpc, slot, data);
+	err = driver_rpc_ack_mmio_finish(&vm->vmm->rpc, req, data);
 	if (err) {
 		// FIXME: Wait and retry
 		return -1;
