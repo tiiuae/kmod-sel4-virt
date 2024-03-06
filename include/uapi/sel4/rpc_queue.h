@@ -345,14 +345,19 @@ int rpcmsg_dequeue(rpcmsg_queue_t *q, rpcmsg_buffer_t *b,
 #define RPCMSG_F_INIT_QUEUE	2
 #define RPCMSG_F_INIT_ALL	(~0)
 
-#define _rpcmsg_queue_init(_ptr, _b, _q, _flags)	\
+#define _rpcmsg_queue_init(_ptr, _flags)			\
+	do {							\
+		if ((_flags) & RPCMSG_F_INIT_BUFFER)		\
+			rpcmsg_buffer_init((_ptr)->buffer);	\
+		if ((_flags) & RPCMSG_F_INIT_QUEUE)		\
+			rpcmsg_queue_init((_ptr)->queue);	\
+	} while(0)
+
+#define _rpcmsg_queue(_ptr, _b, _q, _flags)		\
 	do {						\
 		(_ptr)->buffer = (_b);			\
 		(_ptr)->queue = (_q);			\
-		if ((_flags) & RPCMSG_F_INIT_BUFFER)	\
-			rpcmsg_buffer_init((_b));	\
-		if ((_flags) & RPCMSG_F_INIT_QUEUE)	\
-			rpcmsg_queue_init((_q));	\
+		_rpcmsg_queue_init((_ptr), (_flags));	\
 	} while(0)
 
 /* Event queue is for fire-and-forget send semantics */
@@ -361,10 +366,16 @@ typedef struct rpcmsg_event_queue {
 	rpcmsg_queue_t *queue;
 } rpcmsg_event_queue_t;
 
-#define rpcmsg_event_txq_init(_ptr, _b, _q)	\
-	_rpcmsg_queue_init((_ptr), (_b), (_q), RPCMSG_F_INIT_ALL)
-#define rpcmsg_event_rxq_init(_ptr, _b, _q)	\
-	_rpcmsg_queue_init((_ptr), (_b), (_q), 0)
+/* Event queue initializer helpers */
+#define rpcmsg_event_txq(_ptr, _b, _q) \
+	_rpcmsg_queue((_ptr), (_b), (_q), RPCMSG_F_INIT_ALL)
+#define rpcmsg_event_rxq(_ptr, _b, _q) \
+	_rpcmsg_queue((_ptr), (_b), (_q), 0)
+
+#define rpcmsg_event_txq_init(_ptr) \
+	_rpcmsg_queue_init((_ptr), RPCMSG_F_INIT_ALL)
+#define rpcmsg_event_rxq_init(_ptr) \
+	_rpcmsg_queue_init((_ptr), 0)
 
 static inline
 void rpcmsg_event_enqueue_fn(rpcmsg_queue_t * const q,
@@ -455,14 +466,24 @@ typedef struct rpcmsg_rpc_queue {
 	rpcmsg_queue_t *queue;
 } rpcmsg_rpc_queue_t;
 
-#define rpcmsg_call_queue_init(_ptr, _b, _q) \
-	_rpcmsg_queue_init((_ptr), (_b), (_q), RPCMSG_F_INIT_ALL)
-#define rpcmsg_recv_queue_init(_ptr, _b, _q) \
-	_rpcmsg_queue_init((_ptr), (_b), (_q), 0)
-#define rpcmsg_fwd_queue_init(_ptr, _b, _q) \
-	_rpcmsg_queue_init((_ptr), (_b), (_q), RPCMSG_F_INIT_QUEUE)
-#define rpcmsg_reply_queue_init(_ptr, _b, _q) \
-	_rpcmsg_queue_init((_ptr), (_b), (_q), RPCMSG_F_INIT_QUEUE)
+/* RPC initializer helpers */
+#define rpcmsg_call_queue_init(_ptr) \
+	_rpcmsg_queue_init((_ptr), RPCMSG_F_INIT_ALL)
+#define rpcmsg_recv_queue_init(_ptr) \
+	_rpcmsg_queue_init((_ptr), 0)
+#define rpcmsg_fwd_queue_init(_ptr) \
+	_rpcmsg_queue_init((_ptr), RPCMSG_F_INIT_QUEUE)
+#define rpcmsg_reply_queue_init(_ptr) \
+	_rpcmsg_queue_init((_ptr), RPCMSG_F_INIT_QUEUE)
+
+#define rpcmsg_call_queue(_ptr, _b, _q) \
+	_rpcmsg_queue((_ptr), (_b), (_q), RPCMSG_F_INIT_ALL)
+#define rpcmsg_recv_queue(_ptr, _b, _q) \
+	_rpcmsg_queue((_ptr), (_b), (_q), 0)
+#define rpcmsg_fwd_queue(_ptr, _b, _q) \
+	_rpcmsg_queue((_ptr), (_b), (_q), RPCMSG_F_INIT_QUEUE)
+#define rpcmsg_reply_queue(_ptr, _b, _q) \
+	_rpcmsg_queue((_ptr), (_b), (_q), RPCMSG_F_INIT_QUEUE)
 
 typedef DECLARE_BITMAP(rpcmsg_buffer_state_t, RPCMSG_BUFFER_SIZE);
 

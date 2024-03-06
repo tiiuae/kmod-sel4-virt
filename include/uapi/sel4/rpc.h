@@ -309,7 +309,10 @@ static inline int vso_driver_rpc_init(vso_rpc_id_t id, void *iobuf, vso_driver_r
 	case vso_rpc_driver:
 		drvrpc->request = driver_drvrpc_req(iobuf);
 		drvrpc->response = driver_drvrpc_resp(iobuf);
-		memset(drvrpc->buffer_state, 0, sizeof(drvrpc->buffer_state));
+
+		rpcmsg_call_queue_init(&drvrpc->request);
+		rpcmsg_reply_queue_init(&drvrpc->response);
+		rpcmsg_buffer_init(drvrpc->request.buffer);
 		break;
 	case vso_rpc_device_km:
 		drvrpc->request = device_km_drvrpc_req(iobuf);

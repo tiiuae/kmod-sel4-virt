@@ -214,6 +214,7 @@ static int sel4_pci_vmm_create(int id, struct sel4_dataport * dataports[])
 		rc = -EINVAL;
 		goto free_vmm;
 	}
+	rpcmsg_fwd_queue_init(&vmm->user_rpc.driver_rpc.request);
 
 	sel4_vmm_mem_map_set(vmm, SEL4_MEM_MAP_RAM, &dataports[SEL4_DATAPORT_RAM]->mem[1]);
 

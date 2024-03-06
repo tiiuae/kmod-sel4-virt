@@ -140,7 +140,7 @@ static int test_event_queue(void)
 	rpcmsg_event_queue_t eq;
 	rpcmsg_t msg;
 
-	rpcmsg_event_txq_init(&eq, &b, &q);
+	rpcmsg_event_txq(&eq, &b, &q);
 
 	assert_eq(rpcmsg_event_tx(&eq, 1, 2, 3, 4), 0);
 	assert_eq(rpcmsg_event_tx(&eq, 5, 6, 7, 8), 0);
@@ -226,8 +226,8 @@ static void init_caller(caller_t *caller,
 			rpcmsg_queue_t *request,
 			rpcmsg_queue_t *response)
 {
-	rpcmsg_call_queue_init(&caller->request, buffer, request);
-	rpcmsg_recv_queue_init(&caller->response, buffer, response);
+	rpcmsg_call_queue(&caller->request, buffer, request);
+	rpcmsg_recv_queue(&caller->response, buffer, response);
 	rpcmsg_buffer_state_init(caller->s);
 }
 
@@ -236,8 +236,8 @@ static void init_callee(callee_t *callee,
 			rpcmsg_queue_t *request,
 			rpcmsg_queue_t *response)
 {
-	rpcmsg_recv_queue_init(&callee->request, buffer, request);
-	rpcmsg_reply_queue_init(&callee->response, buffer, response);
+	rpcmsg_recv_queue(&callee->request, buffer, request);
+	rpcmsg_reply_queue(&callee->response, buffer, response);
 }
 
 static int test_request_reply(void)
