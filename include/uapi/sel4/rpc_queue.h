@@ -593,7 +593,7 @@ rpcmsg_t *rpcmsg_receive_response(rpcmsg_rpc_queue_t *rpc,
 
 	if (!rpcmsg_dequeue(rpc->queue, rpc->buffer, rpcmsg_rpc_dequeue_fn, &msg)) {
 		if (transaction_id) {
-			*transaction_id = rpcmsg_msg_to_id(rpc->buffer, msg);;
+			*transaction_id = rpcmsg_msg_to_id(rpc->buffer, msg);
 		}
 	}
 
