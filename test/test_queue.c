@@ -84,7 +84,7 @@ static int test_queue_dequeue(void)
 {
 	rpcmsg_queue_t q;
 	rpcmsg_buffer_t b;
-	rpcmsg_t *msg;
+	rpcmsg_t *msg = NULL;
 
 	rpcmsg_queue_init(&q);
 	rpcmsg_buffer_init(&b);
@@ -249,7 +249,7 @@ static int test_request_reply(void)
 	callee_t callee;
 	rpcmsg_t *msg1;
 	rpcmsg_t *msg2;
-	uint16_t id;
+	uint16_t id = ~0;
 
 
 	init_caller(&caller, &b, &req, &resp);
