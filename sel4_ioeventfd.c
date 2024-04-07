@@ -25,13 +25,24 @@ static bool sel4_ioeventfd_config_valid(struct sel4_ioeventfd_config *config)
 	if (!config)
 		return false;
 
+	/* vhost supported lengths: 0 matches all lengths. */
+	switch (config->len) {
+	case 0:
+	case 1:
+	case 2:
+	case 4:
+	case 8:
+		break;
+	default:
+		return false;
+	}
+
 	/* overflow */
 	if (config->addr + config->len < config->addr)
 		return false;
 
-	/* vhost supported lengths */
-	if (!(config->len == 1 || config->len == 2 ||
-	      config->len == 4 || config->len == 8))
+	/* ioeventfd with no length can't be combined with DATAMATCH */
+	if (!config->len && (config->flags & SEL4_IOEVENTFD_FLAG_DATAMATCH))
 		return false;
 
 	return true;
@@ -48,13 +59,36 @@ static bool sel4_ioeventfd_conflict(struct sel4_vm *vm,
 		if (entry->eventfd == ioeventfd->eventfd &&
 		    entry->addr == ioeventfd->addr &&
 		    entry->addr_space == ioeventfd->addr_space &&
-		    (entry->wildcard || ioeventfd->wildcard ||
-			entry->data == ioeventfd->data)) {
+		    (!entry->len || !ioeventfd->len ||
+		     (entry->len == ioeventfd->len &&
+		      (entry->wildcard || ioeventfd->wildcard ||
+			entry->data == ioeventfd->data)))) {
 			return true;
 		}
 	}
 
 	return false;
+}
+
+static bool sel4_ioeventfd_in_range(struct sel4_ioeventfd *e, u32 addr_space,
+				    u64 addr, u64 len, u64 data)
+{
+	if (e->addr != addr)
+		return false;
+
+	if (e->addr_space != addr_space)
+		return false;
+
+	if (!e->len)
+		return true;
+
+	if (e->len != len)
+		return false;
+
+	if (e->wildcard)
+		return true;
+
+	return e->data == data;
 }
 
 static struct sel4_ioeventfd *sel4_ioeventfd_match(struct sel4_vm *vm,
@@ -68,10 +102,8 @@ static struct sel4_ioeventfd *sel4_ioeventfd_match(struct sel4_vm *vm,
 	lockdep_assert_held(&vm->lock);
 
 	list_for_each_entry(entry, &vm->ioeventfds, list) {
-		if (entry->addr == addr &&
-		    entry->addr_space == addr_space &&
-		    entry->len >= len &&
-		    (entry->wildcard || entry->data == data)) {
+		if (sel4_ioeventfd_in_range(entry, addr_space,
+					    addr, len, data)) {
 			return entry;
 		}
 	}
