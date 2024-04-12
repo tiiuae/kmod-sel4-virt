@@ -7,6 +7,7 @@
 #include <linux/slab.h>
 #include <linux/list.h>
 #include <linux/eventfd.h>
+#include <linux/version.h>
 
 #include "sel4_virt_drv.h"
 
@@ -19,6 +20,15 @@ struct sel4_ioeventfd {
 	u32	addr_space;
 	bool	wildcard;
 };
+
+static inline void sel4_ioeventfd_signal(struct sel4_ioeventfd *ioeventfd)
+{
+#if LINUX_VERSION_CODE <= KERNEL_VERSION(6,8,0) || LINUX_VERSION_CODE <= KERNEL_VERSION(6,7,12)
+	eventfd_signal(ioeventfd->eventfd, 1);
+#else
+	eventfd_signal(ioeventfd->eventfd);
+#endif
+}
 
 static bool sel4_ioeventfd_config_valid(struct sel4_ioeventfd_config *config)
 {
@@ -225,7 +235,7 @@ int rpc_process_mmio(struct sel4_vm *vm, rpcmsg_t *req)
 	}
 
 	/* signal the eventfd and mark request as complete */
-	eventfd_signal(ioeventfd->eventfd, 1);
+	sel4_ioeventfd_signal(ioeventfd);
 	sel4_vm_unlock(vm, irqflags);
 
 	err = driver_ack_mmio_finish(&vm->vmm->rpc, slot, data);
