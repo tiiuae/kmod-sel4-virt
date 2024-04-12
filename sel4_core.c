@@ -204,7 +204,7 @@ static void sel4_vm_put(struct sel4_vm *vm)
  * memory while caller still is using the struct. See virt/kvm/kvm_main.c
  * for the explanation.
  */
-void sel4_put_no_destroy(struct sel4_vm *vm)
+static void sel4_put_no_destroy(struct sel4_vm *vm)
 {
 	BUG_ON(!vm);
 	WARN_ON(refcount_dec_and_test(&vm->refcount));
